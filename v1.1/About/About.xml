@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+    <name>TerrainMovementKit</name>
+    <author>Pyrce</author>
+    <url>https://github.com/MSeal/RimworldSwimming</url>
+    <supportedVersions>
+      <li>1.1</li>
+    </supportedVersions>
+    <modDependencies>
+      <li>
+        <displayName>Harmony</displayName>
+        <packageId>brrainz.harmony</packageId>
+        <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+      </li>
+    </modDependencies>
+    <loadAfter>
+      <li>Ludeon.RimWorld</li>
+      <li>Ludeon.RimWorld.Royalty</li>
+      <li>brrainz.harmony</li>
+    </loadAfter>
+    <packageId>pyrce.terrain.movement.modkit</packageId>
+    <description>[h1]SwimmingKit[/h1]
+
+A RimWorld mod which enables other mods to specify different movement speeds and restrictions based on terrain and pawn stats.
+
+[h1]Description[/h1]
+
+The mod acts as a toolkit for adding swimming statistics to the game. It makes pawns respect a new baseStats for both moving through specific terrain and for planning pathing through such terrain.
+
+
+[h1]How to Use[/h1]
+
+TODO
+
+For more details please read the [url=https://github.com/MSeal/RimworldTerrainMovementKit]Github TerrainMovementKit page[/url].
+    </description>
+</ModMetaData>
