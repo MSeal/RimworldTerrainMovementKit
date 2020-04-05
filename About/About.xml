@@ -23,7 +23,7 @@
     </loadBefore>
     <packageId>pyrce.terrain.movement.modkit</packageId>
     <description>
-[h1]RimworldTerrainMovementKit[/h1]
+[h1]Terrain Movement Kit (TMK)[/h1]
 
 A mod for other mods to add terrain specific movement options and restrictions
 
@@ -55,7 +55,7 @@ The mod can be used as a mod dependency OR as a [url=https://github.com/MSeal/Ri
   &lt;/loadAfter&gt;
   ...
 [/code]
-If the mods above are not present it will still check for mod load orders of this librarly DLL and emit an error message (but still load) if it detects a later version lower in the users mod list.
+If the mods above are not present it will still check for mod load orders of this library DLL and emit an error message (but still load) if it detects a later version lower in the users mod list.
 
 [h2]Credits[/h2]
 

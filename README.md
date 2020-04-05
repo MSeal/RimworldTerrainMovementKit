@@ -36,7 +36,7 @@ The mod can be used as a mod dependency OR as a [direct DLL](https://github.com/
     ...
 ```
 
-If the mods above are not present it will still check for mod load orders of this librarly DLL and emit an error message (but still load) if it detects a later version lower in the users mod list.
+If the mods above are not present it will still check for mod load orders of this library DLL and emit an error message (but still load) if it detects a later version lower in the users mod list.
 
 ## Credits
 
