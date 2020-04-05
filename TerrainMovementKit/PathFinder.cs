@@ -222,24 +222,15 @@ namespace TerrainMovement
 			int num5 = 0;
 			int num6 = 0;
 			float num7 = DetermineHeuristicStrength(pawn, start, dest);
-			int num8;
-			int num9;
-			if (pawn != null)
-			{
-				num8 = pawn.TicksPerMoveCardinal;
-				num9 = pawn.TicksPerMoveDiagonal;
-			}
-			else
-			{
-				num8 = 13;
-				num9 = 18;
-			}
 			// BEGIN CHANGED SECTION
 			// In case pawn is null
-			num8 = 13;
-			num9 = 18;
+			int num8 = 13;
+			int num9 = 18;
 			Dictionary<TerrainDef, int> pawnTerrainCacheCardinal = new Dictionary<TerrainDef, int>();
 			Dictionary<TerrainDef, int> pawnTerrainCacheDiagonal = new Dictionary<TerrainDef, int>();
+			Dictionary<TerrainDef, bool> pawnSpecialMovementCache = new Dictionary<TerrainDef, bool>();
+			Dictionary<TerrainDef, bool> pawnImpassibleMovementCache = new Dictionary<TerrainDef, bool>();
+			Dictionary<TerrainDef, int> pawnPerceivedMovementCache = new Dictionary<TerrainDef, int>();
 			// END CHANGED SECTION
 			CalculateAndAddDisallowedCorners(traverseParms, peMode, cellRect);
 			InitStatusesAndPushStartNode(ref curIndex, start);
@@ -308,19 +299,32 @@ namespace TerrainMovement
 					int num13 = (int)num11;
 					int num14 = cellIndices.CellToIndex(num12, num13);
 					// BEGIN CHANGED SECTION
-					TerrainDef cellTerrain = topGrid[num14];
+					IntVec3 targetCell = new IntVec3(num12, 0, num13);
+					TerrainDef targetTerrain = topGrid[num14];
 					if (pawn != null)
 					{
-						// Overwrite directional move costs
-						if (!pawnTerrainCacheCardinal.TryGetValue(cellTerrain, out num8))
+						// Use cache of terrain movement indicators to avoid a lot of repeated computation
+						if (!pawnImpassibleMovementCache.TryGetValue(targetTerrain, out bool impassible))
 						{
-							num8 = pawn.TerrainAwareTicksPerMoveCardinal(cellTerrain);
-							pawnTerrainCacheCardinal[cellTerrain] = num8;
+							impassible = pawn.UnreachableTerrainCheck(targetTerrain);
+							pawnImpassibleMovementCache[targetTerrain] = impassible;
 						}
-						if (!pawnTerrainCacheDiagonal.TryGetValue(cellTerrain, out num9))
+						if (impassible)
 						{
-							num9 = pawn.TerrainAwareTicksPerMoveDiagonal(cellTerrain);
-							pawnTerrainCacheDiagonal[cellTerrain] = num9;
+							// Skip this cell for pathing calculations
+							continue;
+						}
+
+						// Overwrite directional move costs
+						if (!pawnTerrainCacheCardinal.TryGetValue(targetTerrain, out num8))
+						{
+							num8 = pawn.TerrainAwareTicksPerMoveCardinal(targetTerrain);
+							pawnTerrainCacheCardinal[targetTerrain] = num8;
+						}
+						if (!pawnTerrainCacheDiagonal.TryGetValue(targetTerrain, out num9))
+						{
+							num9 = pawn.TerrainAwareTicksPerMoveDiagonal(targetTerrain);
+							pawnTerrainCacheDiagonal[targetTerrain] = num9;
 						}
 					}
 					// END CHANGED SECTION
@@ -330,7 +334,8 @@ namespace TerrainMovement
 					}
 					int num15 = 0;
 					bool flag10 = false;
-					if (!flag2 && new IntVec3(num12, 0, num13).GetTerrain(map).HasTag("Water"))
+					//if (!flag2 && new IntVec3(num12, 0, num13).GetTerrain(map).HasTag("Water"))
+					if (!flag2 && targetTerrain.HasTag("Water"))
 					{
 						continue;
 					}
@@ -428,19 +433,46 @@ namespace TerrainMovement
 					num16 += num15;
 					if (!flag10)
 					{
-						num16 += array[num14];
 						// BEGIN CHANGED SECTION
-						//num16 = ((!flag9) ? (num16 + topGrid[num14].extraNonDraftedPerceivedPathCost) : (num16 + topGrid[num14].extraDraftedPerceivedPathCost));
-						// Skip applying the PerceivedPathCost hack if we've got a specialized speed stat for this terrain
-						if (pawn.TerrainSpeedStat(cellTerrain) == StatDefOf.MoveSpeed)
+						if (pawn == null)
 						{
+							num16 += array[num14];
 							if (flag9)
 							{
-								num16 += cellTerrain.extraDraftedPerceivedPathCost;
+								num16 += targetTerrain.extraDraftedPerceivedPathCost;
 							}
 							else
 							{
-								num16 += cellTerrain.extraNonDraftedPerceivedPathCost;
+								num16 += targetTerrain.extraNonDraftedPerceivedPathCost;
+							}
+						}
+						else
+						{
+							// Use cache of terrain perceived cost instead of fixed pathCost grid to avoid a lot of repeated computation while maintaining accuracy
+							if (!pawnPerceivedMovementCache.TryGetValue(targetTerrain, out int perceivedCost))
+							{
+								perceivedCost = pathGrid.TerrainCalculatedCostAt(map, pawn, targetCell, true, IntVec3.Invalid);
+								pawnPerceivedMovementCache[targetTerrain] = perceivedCost;
+							}
+							num16 += perceivedCost;
+							//num16 = ((!flag9) ? (num16 + topGrid[num14].extraNonDraftedPerceivedPathCost) : (num16 + topGrid[num14].extraDraftedPerceivedPathCost));
+							// Use cache of terrain movement indicators to avoid a lot of repeated computation
+							if (!pawnSpecialMovementCache.TryGetValue(targetTerrain, out bool specialMovement))
+							{
+								specialMovement = pawn.TerrainMoveStat(targetTerrain) != StatDefOf.MoveSpeed;
+								pawnSpecialMovementCache[targetTerrain] = specialMovement;
+							}
+							// Skip applying the PerceivedPathCost hack if we've got a specialized speed stat for this terrain
+							if (!specialMovement)
+							{
+								if (flag9)
+								{
+									num16 += targetTerrain.extraDraftedPerceivedPathCost;
+								}
+								else
+								{
+									num16 += targetTerrain.extraNonDraftedPerceivedPathCost;
+								}
 							}
 						}
 						// END CHANGED SECTION
@@ -453,7 +485,8 @@ namespace TerrainMovement
 					{
 						num16 += 600;
 					}
-					if (flag5 && PawnUtility.AnyPawnBlockingPathAt(new IntVec3(num12, 0, num13), pawn, actAsIfHadCollideWithPawnsJob: false, collideOnlyWithStandingPawns: false, forPathFinder: true))
+					//new IntVec3(num12, 0, num13) -> targetCell
+					if (flag5 && PawnUtility.AnyPawnBlockingPathAt(targetCell, pawn, actAsIfHadCollideWithPawnsJob: false, collideOnlyWithStandingPawns: false, forPathFinder: true))
 					{
 						num16 += 175;
 					}

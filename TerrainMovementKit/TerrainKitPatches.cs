@@ -6,29 +6,50 @@ using Verse.AI;
 using UnityEngine;
 using HarmonyLib;
 using System.Reflection;
-
+using System.Linq;
+using System.IO;
 
 namespace TerrainMovement
 {
-    [StaticConstructorOnStartup]
-    public static class KitLoader
+    public sealed class HarmonyStarter : Mod
     {
         public const String HarmonyId = "net.mseal.rimworld.mod.terrain.movement";
 
-        static KitLoader()
+        public HarmonyStarter(ModContentPack content) : base(content)
         {
-            if (!Harmony.HasAnyPatches(HarmonyId))
+            Assembly terrainAssembly = Assembly.GetExecutingAssembly();
+            string DLLName = terrainAssembly.GetName().Name;
+            Version loadedVersion = terrainAssembly.GetName().Version;
+            Version laterVersion = loadedVersion;
+                
+            List<ModContentPack> runningModsListForReading = LoadedModManager.RunningModsListForReading;
+            foreach (ModContentPack mod in runningModsListForReading)
             {
-                var harmony = new Harmony(HarmonyId);
-                harmony.PatchAll(Assembly.GetExecutingAssembly());
+                foreach (FileInfo item in from f in ModContentPack.GetAllFilesForMod(mod, "Assemblies/", (string e) => e.ToLower() == ".dll") select f.Value)
+                {
+                    var newAssemblyName = AssemblyName.GetAssemblyName(item.FullName);
+                    if (newAssemblyName.Name == DLLName && newAssemblyName.Version > laterVersion)
+                    {
+                        laterVersion = newAssemblyName.Version;
+                        Log.Error(String.Format("TerrainMovementKit load order error detected. {0} is loading an older version {1} before {2} loads version {3}. Please put the TerrainMovementKit, or BiomesCore modes above this one if they are active.",
+                            content.Name, loadedVersion, mod.Name, laterVersion));
+                    }
+                }
             }
+
+            var harmony = new Harmony(HarmonyId);
+            harmony.PatchAll(terrainAssembly);
         }
     }
 
     public class TerrainMovementStatDef : DefModExtension
     {
-        public String terrainPathCostStat = null;
-        public String pawnSpeedStat = null;
+        public String terrainPathCostStat = "pathCost";
+        public String pawnSpeedStat = "MoveSpeed";
+    }
+    public class TerrainMovementTerrainRestrictions : DefModExtension
+    {
+        public String disallowedPathCostStat = "pathCost";
     }
     public class TerrainMovementPawnRestrictions : DefModExtension
     {
@@ -37,7 +58,7 @@ namespace TerrainMovement
         public String stayOnTerrainTag = null;
     }
 
-    static class MapExtensions
+    public static class MapExtensions
     {
         public static Dictionary<int, TerrainAwarePathFinder> PatherLookup = new Dictionary<int, TerrainAwarePathFinder>();
 
@@ -58,31 +79,12 @@ namespace TerrainMovement
 
         public static bool UnreachableTerrainCheck(this Map map, LocalTargetInfo target, Pawn pawn)
         {
-            if (pawn != null)
-            {
-                TerrainDef terrain = target.Cell.GetTerrain(map);
-                foreach (DefModExtension ext in pawn.def.modExtensions)
-                {
-                    if (ext is TerrainMovementPawnRestrictions)
-                    {
-                        TerrainMovementPawnRestrictions restrictions = ext as TerrainMovementPawnRestrictions;
-                        if (restrictions.stayOffTerrainTag != null && terrain.HasTag(restrictions.stayOffTerrainTag))
-                        {
-                            return true;
-                        }
-                        if (restrictions.stayOnTerrainTag != null && !terrain.HasTag(restrictions.stayOnTerrainTag))
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
+            return pawn == null ? false : pawn.UnreachableTerrainCheck(target.Cell.GetTerrain(map));
         }
     }
 
     [HarmonyPatch(typeof(Map), "FinalizeInit", new Type[0])]
-    internal static class Map_FinalizeInit_Patch
+    public class Map_FinalizeInit_Patch
     {
         private static void Postfix()
         {
@@ -91,7 +93,7 @@ namespace TerrainMovement
     }
 
     [HarmonyPatch(typeof(PathFinder), "FindPath", new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode) })]
-    class SwimmerPathPatch
+    public class TerrainPathPatch
     {
         static bool Prefix(ref PawnPath __result, Map ___map, IntVec3 start, LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
         {
@@ -101,7 +103,7 @@ namespace TerrainMovement
     }
 
     [HarmonyPatch(typeof(Reachability), "CanReach", new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(PathEndMode), typeof(TraverseParms) })]
-    class CanReachMoveCheck
+    public class CanReachMoveCheck
     {
         static bool Prefix(ref bool __result, Map ___map, IntVec3 start, LocalTargetInfo dest, PathEndMode peMode, TraverseParms traverseParams)
         {
@@ -115,7 +117,7 @@ namespace TerrainMovement
     }
 
     [HarmonyPatch(typeof(ReachabilityImmediate), "CanReachImmediate", new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(Map), typeof(PathEndMode), typeof(Pawn) })]
-    class CanReachImmediateMoveCheck
+    public class CanReachImmediateMoveCheck
     {
         static bool Prefix(ref bool __result, IntVec3 start, LocalTargetInfo target, Map map, PathEndMode peMode, Pawn pawn)
         {
@@ -128,97 +130,10 @@ namespace TerrainMovement
         }
     }
 
-    [HarmonyPatch(typeof(PathGrid), "CalculatedCostAt", new Type[] { typeof(IntVec3), typeof(bool), typeof(IntVec3) })]
-    class TerrainAwareCalculatedCostAt
+    [HarmonyPatch(typeof(Pawn_PathFollower), "CostToMoveIntoCell", new Type[] { typeof(Pawn), typeof(IntVec3) })]
+    public class TerrainAwareFollowerPatch
     {
-        static bool Prefix(ref int __result, Map ___map, IntVec3 c, bool perceivedStatic, IntVec3 prevCell)
-        {
-            int num = 0;
-            bool flag = false;
-            TerrainDef terrainDef = ___map.terrainGrid.TerrainAt(c);
-            
-            // TODO finish this...
-            /*StatDef moveStat = pawn.TerrainSpeedStat(terrainDef);
-            StatDef terrainPathCostStat = terrainDef.TerrainPathCostStat();
-            int terrainPathCost = (terrainPathCostStat != null) ? (int)terrainDef.GetStatValueAbstract(terrainPathCostStat) : 0;
-            float terrainSpeed = pawn.GetStatValue(moveStat, true);*/
-
-            if (terrainDef == null || terrainDef.passability == Traversability.Impassable)
-            {
-               __result = 10000;
-                return false;
-            }
-            num = terrainDef.pathCost;
-            List<Thing> list = ___map.thingGrid.ThingsListAt(c);
-            for (int i = 0; i < list.Count; i++)
-            {
-                Thing thing = list[i];
-                if (thing.def.passability == Traversability.Impassable)
-                {
-                    __result = 10000;
-                    return false;
-                }
-                if (!IsPathCostIgnoreRepeater(thing.def) || !prevCell.IsValid || !ContainsPathCostIgnoreRepeater(prevCell))
-                {
-                    int pathCost = thing.def.pathCost;
-                    if (pathCost > num)
-                    {
-                        num = pathCost;
-                    }
-                }
-                if (thing is Building_Door && prevCell.IsValid)
-                {
-                    Building edifice = prevCell.GetEdifice(___map);
-                    if (edifice != null && edifice is Building_Door)
-                    {
-                        flag = true;
-                    }
-                }
-            }
-            int num2 = SnowUtility.MovementTicksAddOn(___map.snowGrid.GetCategory(c));
-            if (num2 > num)
-            {
-                num = num2;
-            }
-            if (flag)
-            {
-                num += 45;
-            }
-            if (perceivedStatic)
-            {
-                for (int j = 0; j < 9; j++)
-                {
-                    IntVec3 b = GenAdj.AdjacentCellsAndInside[j];
-                    IntVec3 c2 = c + b;
-                    if (!c2.InBounds(___map))
-                    {
-                        continue;
-                    }
-                    Fire fire = null;
-                    list = ___map.thingGrid.ThingsListAtFast(c2);
-                    for (int k = 0; k < list.Count; k++)
-                    {
-                        fire = (list[k] as Fire);
-                        if (fire != null)
-                        {
-                            break;
-                        }
-                    }
-                    if (fire != null && fire.parent == null)
-                    {
-                        num = ((b.x != 0 || b.z != 0) ? (num + 150) : (num + 1000));
-                    }
-                }
-            }
-            __result = num;
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(Pawn_PathFollower), "CostToMoveIntoCell", new Type[] { typeof(IntVec3) })]
-    class TerrainAwareFollowerPatch
-    {
-        public static int CostToMoveIntoCell(Pawn pawn, IntVec3 c)
+        static bool Prefix(ref int __result, Pawn pawn, IntVec3 c)
         {
             int num;
             if (c.x == pawn.Position.x || c.z == pawn.Position.z)
@@ -229,32 +144,14 @@ namespace TerrainMovement
             {
                 num = pawn.TerrainAwareTicksPerMoveDiagonal(c);
             }
-            int gridCost = pawn.Map.pathGrid.CalculatedCostAt(c, false, pawn.Position);
-            // TODO INSTEAD USE TerrainAwareCalculatedCostAt changes
-            TerrainDef terrain = c.GetTerrain(pawn.Map);
-            StatDef moveStat = pawn.TerrainSpeedStat(terrain);
-            StatDef terrainPathCostStat = terrain.TerrainPathCostStat();
-            int terrainPathCost = (terrainPathCostStat != null) ? (int)terrain.GetStatValueAbstract(terrainPathCostStat) : 0;
-            float terrainSpeed = pawn.GetStatValue(moveStat, true);
-            if (terrainSpeed > 0)
-            {
-                if (terrainPathCost > 0)
-                {
-                    // Replace grid cost with terrain cost
-                    gridCost += terrainPathCost - terrain.pathCost;
-                }
-                else
-                {
-                    // TODO FIGURE OUT WHAT TO DO HERE
-                    // Reduce the path penalty for swimming by 10x
-                    gridCost -= (terrain.pathCost * 9) / 10;
-                }
-            }
-            num += gridCost;
+            // Replace the calculated cost with one which is pawn / terrain aware
+            //num += pawn.Map.pathGrid.CalculatedCostAt(c, perceivedStatic: false, pawn.Position);
+            num += pawn.Map.pathGrid.TerrainCalculatedCostAt(pawn.Map, pawn, c, false, pawn.Position);
+            // Rest of function is the same...
             Building edifice = c.GetEdifice(pawn.Map);
             if (edifice != null)
             {
-                num += (int)edifice.PathWalkCostFor(pawn);
+                num += edifice.PathWalkCostFor(pawn);
             }
             if (num > 450)
             {
@@ -265,7 +162,9 @@ namespace TerrainMovement
                 Pawn locomotionUrgencySameAs = pawn.jobs.curDriver.locomotionUrgencySameAs;
                 if (locomotionUrgencySameAs != null && locomotionUrgencySameAs != pawn && locomotionUrgencySameAs.Spawned)
                 {
-                    int num2 = TerrainAwareFollowerPatch.CostToMoveIntoCell(locomotionUrgencySameAs, c);
+                    int num2 = 0;
+                    // Call the prefix directly because the method we're patching is private
+                    Prefix(ref num2, locomotionUrgencySameAs, c);
                     if (num < num2)
                     {
                         num = num2;
@@ -297,84 +196,287 @@ namespace TerrainMovement
                     }
                 }
             }
-            return Mathf.Max(num, 1);
-        }
-
-        static bool Prefix(ref int __result, Pawn ___pawn, IntVec3 c)
-        {
-            __result = CostToMoveIntoCell(___pawn, c);
+            __result = Mathf.Max(num, 1);
             return false;
         }
     }
 
-    static class TerrainDefExtensions
+    public static class PathGridExtensions
     {
-        public static StatDef TerrainPathCostStat(this TerrainDef terrain)
+        public static bool IsPathCostIgnoreRepeater(ThingDef def)
         {
-            StatDef costStat = null;
-            foreach (DefModExtension ext in terrain.modExtensions)
+            // We might need to boost this for expensive terrain movements?
+            if (def.pathCost >= 25)
             {
-                if (ext is TerrainMovementStatDef)
+                return def.pathCostIgnoreRepeat;
+            }
+            return false;
+        }
+
+        public static bool ContainsPathCostIgnoreRepeater(Map map, IntVec3 c)
+        {
+            List<Thing> list = map.thingGrid.ThingsListAt(c);
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (IsPathCostIgnoreRepeater(list[i].def))
                 {
-                    TerrainMovementStatDef moveStatDef = ext as TerrainMovementStatDef;
-                    if (moveStatDef.terrainPathCostStat == null)
-                    {
-                        Log.ErrorOnce(
-                            String.Format("Terrain movement extension for '{0}' is missing 'terrainPathCostStat'",
-                            terrain.defName), terrain.GetHashCode() + 10);
-                    }
-                    StatDef pathStat = StatDef.Named(moveStatDef.terrainPathCostStat);
-                    if (costStat != null)
-                    {
-                        Log.ErrorOnce(
-                            String.Format("Found duplicate movement extension for '{0}'. Applying last seen extension for pathCostStat", terrain.defName),
-                            terrain.GetHashCode() + 1);
-                    }
-                    costStat = pathStat;
+                    return true;
                 }
             }
-            return costStat;
+            return false;
+        }
+
+        public static int TerrainCalculatedCostAt(this PathGrid grid, Map map, Pawn pawn, IntVec3 c, bool perceivedStatic, IntVec3 prevCell)
+        {
+            int num = 0;
+            bool flag = false;
+            TerrainDef terrainDef = map.terrainGrid.TerrainAt(c);
+            if (terrainDef == null || terrainDef.passability == Traversability.Impassable)
+            {
+                return 10000;
+            }
+            // Replace the pathCost with a terrain aware value based on the best movement option for a pawn
+            //num = terrainDef.pathCost; 
+            num = pawn.TerrainMoveCost(terrainDef);
+            List<Thing> list = map.thingGrid.ThingsListAt(c);
+            for (int i = 0; i < list.Count; i++)
+            {
+                Thing thing = list[i];
+                if (thing.def.passability == Traversability.Impassable)
+                {
+                    return 10000;
+                }
+                if (!IsPathCostIgnoreRepeater(thing.def) || !prevCell.IsValid || !ContainsPathCostIgnoreRepeater(map, prevCell))
+                {
+                    int pathCost = thing.def.pathCost;
+                    if (pathCost > num)
+                    {
+                        num = pathCost;
+                    }
+                }
+                if (thing is Building_Door && prevCell.IsValid)
+                {
+                    Building edifice = prevCell.GetEdifice(map);
+                    if (edifice != null && edifice is Building_Door)
+                    {
+                        flag = true;
+                    }
+                }
+            }
+            int num2 = SnowUtility.MovementTicksAddOn(map.snowGrid.GetCategory(c));
+            if (num2 > num)
+            {
+                num = num2;
+            }
+            if (flag)
+            {
+                num += 45;
+            }
+            if (perceivedStatic)
+            {
+                for (int j = 0; j < 9; j++)
+                {
+                    IntVec3 b = GenAdj.AdjacentCellsAndInside[j];
+                    IntVec3 c2 = c + b;
+                    if (!c2.InBounds(map))
+                    {
+                        continue;
+                    }
+                    Fire fire = null;
+                    list = map.thingGrid.ThingsListAtFast(c2);
+                    for (int k = 0; k < list.Count; k++)
+                    {
+                        fire = (list[k] as Fire);
+                        if (fire != null)
+                        {
+                            break;
+                        }
+                    }
+                    if (fire != null && fire.parent == null)
+                    {
+                        num = ((b.x != 0 || b.z != 0) ? (num + 150) : (num + 1000));
+                    }
+                }
+            }
+            return num;
         }
     }
 
-    static class PawnExtensions
+    public static class TerrainDefExtensions
     {
-        public static StatDef TerrainSpeedStat(this Pawn pawn, TerrainDef terrain)
+        // Provides an opportunity for other mods to manipulate terrain movement stats based on their mod extensions
+        public static TerrainMovementTerrainRestrictions LoadTerrainMovementTerrainRestrictionsExtension(this TerrainDef terrain, DefModExtension ext)
         {
-            StatDef moveStat = null;
-            foreach (DefModExtension ext in terrain.modExtensions)
+            if (ext is TerrainMovementTerrainRestrictions)
             {
-                if (ext is TerrainMovementStatDef)
+                return ext as TerrainMovementTerrainRestrictions;
+            }
+            return null;
+        }
+        public static HashSet<StatDef> TerrainMovementDisallowedPathCostStat(this TerrainDef terrain)
+        {
+            HashSet<StatDef> disallowedPathCostStat = new HashSet<StatDef>();
+            if (terrain.modExtensions != null)
+            {
+                foreach (DefModExtension ext in terrain.modExtensions)
                 {
-                    TerrainMovementStatDef moveStatDef = ext as TerrainMovementStatDef;
-                    if (moveStatDef.pawnSpeedStat == null)
+                    TerrainMovementTerrainRestrictions restrictions = terrain.LoadTerrainMovementTerrainRestrictionsExtension(ext);
+                    if (restrictions != null)
                     {
-                        Log.ErrorOnce(
-                            String.Format("Terrain movement extension for '{0}' is missing 'pawnSpeedStat'", terrain.defName),
-                            terrain.GetHashCode());
-                        continue;
-                    }
-                    StatDef terrainStat = StatDef.Named(moveStatDef.pawnSpeedStat);
-                    if (moveStat != null)
-                    {
-                        Log.ErrorOnce(
-                            String.Format("Found duplicate movement extension for '{0}'. Applying faster speed stat", terrain.defName),
-                            terrain.GetHashCode() + 1);
-                        if (pawn.GetStatValue(moveStat) > pawn.GetStatValue(terrainStat))
+                        StatDef restrictionDef;
+                        // There's no actual StatDef for pathCost, so map it to null
+                        if (restrictions.disallowedPathCostStat == null || restrictions.disallowedPathCostStat == "pathCost")
                         {
-                            terrainStat = moveStat;
+                            restrictionDef = null;
+                        }
+                        else
+                        {
+                            restrictionDef = StatDef.Named(restrictions.disallowedPathCostStat);
+                        }
+                        disallowedPathCostStat.Add(restrictionDef);
+                    }
+                }
+            }
+            return disallowedPathCostStat;
+        }
+
+        // Provides an opportunity for other mods to manipulate terrain movement stats based on their mod extensions
+        public static TerrainMovementStatDef LoadTerrainMovementStatDefExtension(this TerrainDef terrain, DefModExtension ext)
+        {
+            if (ext is TerrainMovementStatDef)
+            {
+                return ext as TerrainMovementStatDef;
+            }
+            return null;
+        }
+        
+        public static IEnumerable<(StatDef moveStat, StatDef costStat)> TerrainMovementStatDefs(this TerrainDef terrain)
+        {
+            HashSet<StatDef> disallowedPathCostsStats = terrain.TerrainMovementDisallowedPathCostStat();
+            // Check for if default movement is allowed or not
+            if (!disallowedPathCostsStats.Contains(null))
+            {
+                yield return (StatDefOf.MoveSpeed, null);
+            }
+            if (terrain.modExtensions != null) {
+                foreach (DefModExtension ext in terrain.modExtensions)
+                {
+                    TerrainMovementStatDef moveStatDef = terrain.LoadTerrainMovementStatDefExtension(ext);
+                    if (moveStatDef != null)
+                    {
+                        StatDef newCostStat;
+                        // There's no actual StatDef for pathCost, so map it to null
+                        if (moveStatDef.pawnSpeedStat == null || moveStatDef.pawnSpeedStat == "pathCost")
+                        {
+                            newCostStat = null;
+                        }
+                        else
+                        {
+                            newCostStat = StatDef.Named(moveStatDef.terrainPathCostStat);
+                        }
+                        // Opt out if the terrain disallows this costStat
+                        if (!disallowedPathCostsStats.Contains(newCostStat))
+                        {
+                            StatDef newMoveStat;
+                            if (moveStatDef.pawnSpeedStat == null)
+                            {
+                                newMoveStat = StatDefOf.MoveSpeed;
+                            }
+                            else
+                            {
+                                newMoveStat = StatDef.Named(moveStatDef.pawnSpeedStat);
+                            }
+                            yield return (newMoveStat, newCostStat);
                         }
                     }
-                    moveStat = terrainStat;
+                }
+            }
+        }
+
+        public static int MovementCost(this TerrainDef terrain, StatDef maybeCostStat)
+        {
+            return maybeCostStat == null ? terrain.pathCost : (int)Math.Round(terrain.GetStatValueAbstract(maybeCostStat), 0);
+        }
+    }
+
+    public static class PawnExtensions
+    {
+        // Provides an opportunity for other mods to manipulate terrain movement stats based on their mod extensions
+        public static TerrainMovementPawnRestrictions LoadTerrainMovementPawnRestrictionsExtension(this Pawn pawn, DefModExtension ext)
+        {
+            if (ext is TerrainMovementPawnRestrictions)
+            {
+                return ext as TerrainMovementPawnRestrictions;
+            }
+            return null;
+        }
+
+        public static bool UnreachableTerrainCheck(this Pawn pawn, TerrainDef terrain)
+        {
+            if (pawn != null && pawn.def.modExtensions != null)
+            {
+                foreach (DefModExtension ext in pawn.def.modExtensions)
+                {
+                    TerrainMovementPawnRestrictions restrictions = pawn.LoadTerrainMovementPawnRestrictionsExtension(ext);
+                    if (restrictions != null)
+                    {
+                        if (restrictions.stayOffTerrainTag != null && terrain.HasTag(restrictions.stayOffTerrainTag))
+                        {
+                            return true;
+                        }
+                        if (restrictions.stayOnTerrainTag != null && !terrain.HasTag(restrictions.stayOnTerrainTag))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        public static (StatDef moveStat, StatDef costStat) BestTerrainMovementStatDefs(this Pawn pawn, TerrainDef terrain)
+        {
+            (StatDef moveStat, StatDef costStat) bestStats = (null, null);
+            float curSpeed = -1;
+            foreach (var terrainStats in terrain.TerrainMovementStatDefs())
+            {
+                // Lazily calculate curSpeed for performance reasons
+                if (bestStats.moveStat == null)
+                {
+                    bestStats = terrainStats;
+                }
+                else
+                {
+                    if (curSpeed < 0)
+                    {
+                        curSpeed = pawn.GetStatValue(bestStats.moveStat) / terrain.MovementCost(bestStats.costStat);
+                    }
+                    float newSpeed = pawn.GetStatValue(terrainStats.moveStat ?? StatDefOf.MoveSpeed) / terrain.MovementCost(terrainStats.costStat);
+                    // Find highest movement statistic for this pawn
+                    if (newSpeed >= curSpeed)
+                    {
+                        curSpeed = newSpeed;
+                        bestStats = terrainStats;
+                    }
                 }
             }
 
-            return moveStat;
+            return bestStats;
         }
 
-        public static float TerrainAwareSpeed(this Pawn pawn, TerrainDef terrain)
+        public static StatDef TerrainMoveStat(this Pawn pawn, TerrainDef terrain)
         {
-            return pawn.GetStatValue(pawn.TerrainSpeedStat(terrain), true);
+            return pawn.BestTerrainMovementStatDefs(terrain).moveStat;
+        }
+
+        public static int TerrainMoveCost(this Pawn pawn, TerrainDef terrain)
+        {
+            return terrain.MovementCost(pawn.BestTerrainMovementStatDefs(terrain).costStat);
+        }
+
+        public static float TerrainSpeed(this Pawn pawn, TerrainDef terrain)
+        {
+            return pawn.GetStatValue(pawn.TerrainMoveStat(terrain));
         }
 
         public static int TerrainAwareTicksPerMoveCardinal(this Pawn pawn, IntVec3 loc)
@@ -399,7 +501,8 @@ namespace TerrainMovement
 
         public static int TerrainAwareTicksPerMove(this Pawn pawn, TerrainDef terrain, bool diagonal)
         {
-            float num = TerrainAwareSpeed(pawn, terrain);
+            float num = TerrainSpeed(pawn, terrain);
+            // Rest of this is the same as vanilla function
             if (RestraintsUtility.InRestraints(pawn))
             {
                 num *= 0.35f;
@@ -417,8 +520,6 @@ namespace TerrainMovement
             else
             {
                 num3 = 1f / num2;
-                // This is actually a bug in the base game -- this applies to all path calculations if you started under a roof
-                // Not sure how to fix without incurring 
                 if (pawn.Spawned && !pawn.Map.roofGrid.Roofed(pawn.Position))
                 {
                     num3 /= pawn.Map.weatherManager.CurMoveSpeedMultiplier;
