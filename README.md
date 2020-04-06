@@ -42,7 +42,9 @@ If the mods above are not present it will still check for mod load orders of thi
 
 The mod Logo above used the following free assets:
 
-Lava: ["LuminousDragonGames"](https://opengameart.org/content/2-seamless-lava-tiles)
-Rock: ["Para"](https://opengameart.org/content/weathered-rock-pack)
-Sand: ["txturs"](https://opengameart.org/content/2048-digitally-painted-tileable-desert-sand-texture)
-Water: ["Aswin Vos"](https://opengameart.org/content/water)
+- Lava: ["LuminousDragonGames"](https://opengameart.org/content/2-seamless-lava-tiles)
+- Rock: ["Para"](https://opengameart.org/content/weathered-rock-pack)
+- Sand: ["txturs"](https://opengameart.org/content/2048-digitally-painted-tileable-desert-sand-texture)
+- Water: ["Aswin Vos"](https://opengameart.org/content/water)
+
+The wiki uses Sand Worm art provided by Chef 
