@@ -8,6 +8,7 @@ using HarmonyLib;
 using System.Reflection;
 using System.Linq;
 using System.IO;
+using Verse.AI.Group;
 
 namespace TerrainMovement
 {
@@ -58,9 +59,13 @@ namespace TerrainMovement
         public String stayOnTerrainTag = null;
     }
 
+    
+
     public static class MapExtensions
     {
         public static Dictionary<int, TerrainAwarePathFinder> PatherLookup = new Dictionary<int, TerrainAwarePathFinder>();
+        public static Dictionary<int, Map> TileLookup = new Dictionary<int, Map>();
+        public static Dictionary<int, Dictionary<TerrainDef, int>> EdgeTerrainLookup = new Dictionary<int, Dictionary<TerrainDef, int>>();
 
         public static void ResetLookup()
         {
@@ -79,18 +84,267 @@ namespace TerrainMovement
 
         public static bool UnreachableTerrainCheck(this Map map, LocalTargetInfo target, Pawn pawn)
         {
-            return pawn == null ? false : pawn.UnreachableTerrainCheck(target.Cell.GetTerrain(map));
+            return pawn == null ? false : pawn.kindDef.UnreachableTerrainCheck(target.Cell.GetTerrain(map));
+        }
+
+        public static Dictionary<TerrainDef, int> TerrainEdgeCounts(this Map map)
+        {
+            // Use cache of terrain when possible
+            if (!EdgeTerrainLookup.TryGetValue(map.uniqueID, out Dictionary<TerrainDef, int> terrains))
+            {
+                terrains = new Dictionary<TerrainDef, int>();
+                foreach (int x in Enumerable.Range(0, map.Size.x - 1))
+                {
+                    foreach (int z in Enumerable.Range(0, map.Size.z - 1))
+                    {
+                        TerrainDef terrain = map.terrainGrid.topGrid[map.cellIndices.CellToIndex(x, z)];
+                        if (!terrains.TryGetValue(terrain, out int counter))
+                        {
+                            counter = 0;
+                        }
+                        terrains.Add(terrain, counter + 1);
+                    }
+                }
+                EdgeTerrainLookup.Add(map.uniqueID, terrains);
+            }
+            return terrains;
+        }
+
+        public static bool PawnKindCanEnter(this Map map, PawnKindDef kind)
+        {
+            int reachableTiles = 0;
+            foreach (KeyValuePair<TerrainDef, int> entry in map.TerrainEdgeCounts())
+            {
+                if (!kind.UnreachableTerrainCheck(entry.Key))
+                {
+                    reachableTiles += entry.Value;
+                }
+            }
+            // If 1/10 of the map edge is reachable
+            return reachableTiles > (map.Size.x + map.Size.z) / 5;
         }
     }
 
     [HarmonyPatch(typeof(Map), "FinalizeInit", new Type[0])]
     public class Map_FinalizeInit_Patch
     {
-        private static void Postfix()
+        private static void Postfix(ref Map __instance)
         {
             MapExtensions.ResetLookup();
+            MapExtensions.TileLookup.Add(__instance.Tile, __instance);
         }
     }
+
+    [HarmonyPatch(typeof(TerrainGrid), "ResetGrids", new Type[0])]
+    public class TerrainGrid_ResetGrids_Patch
+    {
+        private static void Postfix(ref Map ___map)
+        {
+            // Reset our cache when the grid resets
+            MapExtensions.EdgeTerrainLookup.Remove(___map.uniqueID);
+        }
+    }
+
+    [HarmonyPatch(typeof(TerrainGrid), "RemoveTopLayer")]
+    public class TerrainGrid_RemoveTopLayer_Patch
+    {
+        private static void Postfix(ref Map ___map, IntVec3 c, bool doLeavings)
+        {
+            if (c.x == 0 || c.x == ___map.Size.x - 1 || c.z == 0 || c.z == ___map.Size.z - 1)
+            {
+                // Reset our cache when the grid edge changes
+                MapExtensions.EdgeTerrainLookup.Remove(___map.uniqueID);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(TerrainGrid), "SetTerrain")]
+    public class TerrainGrid_SetTerrain_Patch
+    {
+        private static void Postfix(ref Map ___map, IntVec3 c, TerrainDef newTerr)
+        {
+            if (c.x == 0 || c.x == ___map.Size.x - 1 || c.z == 0 || c.z == ___map.Size.z - 1)
+            {
+                // Reset our cache when the grid edge changes
+                MapExtensions.EdgeTerrainLookup.Remove(___map.uniqueID);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(IncidentWorker_HerdMigration), "TryFindAnimalKind")]
+    public class HerdMigration_AnimalKind_Patch
+    {
+        private static bool Prefix(ref bool __result, int tile, out PawnKindDef animalKind)
+        {
+            MapExtensions.TileLookup.TryGetValue(tile, out Map map);
+            __result = DefDatabase<PawnKindDef>.AllDefs.Where(
+                (PawnKindDef k) =>
+                    k.RaceProps.CanDoHerdMigration &&
+                    Find.World.tileTemperatures.SeasonAndOutdoorTemperatureAcceptableFor(tile, k.race) &&
+                    (map == null || map.PawnKindCanEnter(k))
+            ).TryRandomElementByWeight(
+                (PawnKindDef x) => Mathf.Lerp(0.2f, 1f, x.RaceProps.wildness), out animalKind);
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(ManhunterPackIncidentUtility), "TryFindManhunterAnimalKind")]
+    public class ManhunterPackIncidentUtility_AnimalKind_Patch
+    {
+        private static bool Prefix(ref bool __result, float points, int tile, out PawnKindDef animalKind)
+        {
+            MapExtensions.TileLookup.TryGetValue(tile, out Map map);
+            bool flag = DefDatabase<PawnKindDef>.AllDefs.Where(
+                (PawnKindDef k) => 
+                    k.RaceProps.Animal && k.canArriveManhunter && 
+                    (tile == -1 || Find.World.tileTemperatures.SeasonAndOutdoorTemperatureAcceptableFor(tile, k.race)) &&
+                    (map == null || map.PawnKindCanEnter(k))
+
+            ).TryRandomElementByWeight(
+                (PawnKindDef k) => ManhunterPackIncidentUtility.ManhunterAnimalWeight(k, points), out animalKind);
+            if (!flag)
+            {
+                List<PawnKindDef> tmpAnimalKinds = new List<PawnKindDef>();
+                tmpAnimalKinds.AddRange(DefDatabase<PawnKindDef>.AllDefs.Where((PawnKindDef k) => k.RaceProps.Animal && k.canArriveManhunter && map.PawnKindCanEnter(k)));
+                tmpAnimalKinds.Sort((PawnKindDef a, PawnKindDef b) => b.combatPower.CompareTo(a.combatPower));
+                animalKind = tmpAnimalKinds.Take(Math.Max(2, Mathf.FloorToInt(0.15f * (float)tmpAnimalKinds.Count))).RandomElement();
+                __result = animalKind != null;
+            }
+            else
+            {
+                __result = flag;
+            }
+            return false;
+        }
+    }
+
+    public static class CellFinderExtensions
+    {
+        public static List<IntVec3>[] mapSingleEdgeCells = new List<IntVec3>[4];
+        public static IntVec3 mapSingleEdgeCellsSize;
+
+        public static bool TryFindRandomEdgeCellWith(Predicate<IntVec3> validator, Map map, Rot4 dir, float roadChance, out IntVec3 result)
+        {
+            if (Rand.Value < roadChance)
+            {
+                bool flag = map.roadInfo.roadEdgeTiles.Where((IntVec3 c) => validator(c) && c.OnEdge(map, dir)).TryRandomElement(out result);
+                if (flag)
+                {
+                    return flag;
+                }
+            }
+            for (int i = 0; i < 100; i++)
+            {
+                result = CellFinder.RandomEdgeCell(dir, map);
+                if (validator(result))
+                {
+                    return true;
+                }
+            }
+            int asInt = dir.AsInt;
+            if (mapSingleEdgeCells[asInt] == null || map.Size != mapSingleEdgeCellsSize)
+            {
+                mapSingleEdgeCellsSize = map.Size;
+                mapSingleEdgeCells[asInt] = new List<IntVec3>();
+                foreach (IntVec3 edgeCell in CellRect.WholeMap(map).GetEdgeCells(dir))
+                {
+                    mapSingleEdgeCells[asInt].Add(edgeCell);
+                }
+            }
+            List<IntVec3> list = mapSingleEdgeCells[asInt];
+            list.Shuffle();
+            int j = 0;
+            for (int count = list.Count; j < count; j++)
+            {
+                try
+                {
+                    if (validator(list[j]))
+                    {
+                        result = list[j];
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("TryFindRandomEdgeCellWith exception validating " + list[j] + ": " + ex.ToString());
+                }
+            }
+            result = IntVec3.Invalid;
+            return false;
+        }
+    }
+
+   [HarmonyPatch(typeof(SignalAction_Ambush), "DoAction")]
+    public class SignalAction_Ambush_DoAction_Patch
+    {
+        static MethodInfo GenerateAmbushPawnsInfo = AccessTools.Method(typeof(SignalAction_Ambush), "GenerateAmbushPawns");
+        private static bool Prefix(ref SignalAction_Ambush __instance, SignalArgs args)
+        {
+            Map map = __instance.Map;
+            if (__instance.points <= 0f)
+            {
+                return false;
+            }
+            List<Pawn> list = new List<Pawn>();
+            foreach (Pawn item in (IEnumerable<Pawn>)GenerateAmbushPawnsInfo.Invoke(__instance, new object[] { }))
+            {
+                IntVec3 result;
+                if (__instance.spawnPawnsOnEdge)
+                {
+                    // Changed to check `map.PawnKindCanEnter`
+                    // TODO Patch TryFindRandomEdgeCellWith to be PawnKind aware
+                    if (map.PawnKindCanEnter(item.kindDef) && !CellFinder.TryFindRandomEdgeCellWith((IntVec3 x) => x.Standable(map) && !x.Fogged(map) && map.reachability.CanReachColony(x), map, CellFinder.EdgeRoadChance_Ignore, out result))
+                    {
+                        Find.WorldPawns.PassToWorld(item);
+                        break;
+                    }
+                }
+                // TODO: PawnKind aware find cell around
+                else if (!SiteGenStepUtility.TryFindSpawnCellAroundOrNear(__instance.spawnAround, __instance.spawnNear, map, out result))
+                {
+                    Find.WorldPawns.PassToWorld(item);
+                    break;
+                }
+                GenSpawn.Spawn(item, result, map);
+                if (!__instance.spawnPawnsOnEdge)
+                {
+                    for (int i = 0; i < 10; i++)
+                    {
+                        MoteMaker.ThrowAirPuffUp(item.DrawPos, map);
+                    }
+                }
+                list.Add(item);
+            }
+            if (!list.Any())
+            {
+                return false;
+            }
+            if (__instance.ambushType == SignalActionAmbushType.Manhunters)
+            {
+                for (int j = 0; j < list.Count; j++)
+                {
+                    list[j].mindState.mentalStateHandler.TryStartMentalState(MentalStateDefOf.ManhunterPermanent);
+                }
+            }
+            else
+            {
+                Faction faction = list[0].Faction;
+                LordMaker.MakeNewLord(faction, new LordJob_AssaultColony(faction), map, list);
+            }
+            if (!__instance.spawnPawnsOnEdge)
+            {
+                for (int k = 0; k < list.Count; k++)
+                {
+                    list[k].jobs.StartJob(JobMaker.MakeJob(JobDefOf.Wait, 120));
+                    list[k].Rotation = Rot4.Random;
+                }
+            }
+            Find.LetterStack.ReceiveLetter("LetterLabelAmbushInExistingMap".Translate(), "LetterAmbushInExistingMap".Translate(Faction.OfPlayer.def.pawnsPlural).CapitalizeFirst(), LetterDefOf.ThreatBig, list[0]);
+            return false;
+        }
+    }
+
+    //TODO: SiteGenStepUtility replacements
 
     [HarmonyPatch(typeof(PathFinder), "FindPath", new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode) })]
     public class TerrainPathPatch
@@ -399,10 +653,10 @@ namespace TerrainMovement
         }
     }
 
-    public static class PawnExtensions
+    public static class PawnKindDefExtensions
     {
         // Provides an opportunity for other mods to manipulate terrain movement stats based on their mod extensions
-        public static TerrainMovementPawnRestrictions LoadTerrainMovementPawnRestrictionsExtension(this Pawn pawn, DefModExtension ext)
+        public static TerrainMovementPawnRestrictions LoadTerrainMovementPawnRestrictionsExtension(this PawnKindDef kind, DefModExtension ext)
         {
             if (ext is TerrainMovementPawnRestrictions)
             {
@@ -411,13 +665,13 @@ namespace TerrainMovement
             return null;
         }
 
-        public static bool UnreachableTerrainCheck(this Pawn pawn, TerrainDef terrain)
+        public static bool UnreachableTerrainCheck(this PawnKindDef kind, TerrainDef terrain)
         {
-            if (pawn != null && pawn.def.modExtensions != null)
+            if (kind.race.modExtensions != null)
             {
-                foreach (DefModExtension ext in pawn.def.modExtensions)
+                foreach (DefModExtension ext in kind.race.modExtensions)
                 {
-                    TerrainMovementPawnRestrictions restrictions = pawn.LoadTerrainMovementPawnRestrictionsExtension(ext);
+                    TerrainMovementPawnRestrictions restrictions = kind.LoadTerrainMovementPawnRestrictionsExtension(ext);
                     if (restrictions != null)
                     {
                         if (restrictions.stayOffTerrainTag != null && terrain.HasTag(restrictions.stayOffTerrainTag))
@@ -433,7 +687,10 @@ namespace TerrainMovement
             }
             return false;
         }
+    }
 
+    public static class PawnExtensions
+    {
         public static (StatDef moveStat, StatDef costStat) BestTerrainMovementStatDefs(this Pawn pawn, TerrainDef terrain)
         {
             (StatDef moveStat, StatDef costStat) bestStats = (null, null);

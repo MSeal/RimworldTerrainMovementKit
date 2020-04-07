@@ -306,7 +306,7 @@ namespace TerrainMovement
 						// Use cache of terrain movement indicators to avoid a lot of repeated computation
 						if (!pawnImpassibleMovementCache.TryGetValue(targetTerrain, out bool impassible))
 						{
-							impassible = pawn.UnreachableTerrainCheck(targetTerrain);
+							impassible = pawn.kindDef.UnreachableTerrainCheck(targetTerrain);
 							pawnImpassibleMovementCache[targetTerrain] = impassible;
 						}
 						if (impassible)
