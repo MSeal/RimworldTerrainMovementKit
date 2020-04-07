@@ -62,11 +62,6 @@ namespace TerrainMovement
     {
         public static Dictionary<int, TerrainAwarePathFinder> PatherLookup = new Dictionary<int, TerrainAwarePathFinder>();
 
-        public static void ResetLookup()
-        {
-            PatherLookup = new Dictionary<int, TerrainAwarePathFinder>();
-        }
-
         public static TerrainAwarePathFinder TerrainAwarePather(this Map map)
         {
             if (!PatherLookup.TryGetValue(map.uniqueID, out TerrainAwarePathFinder pather))
@@ -80,15 +75,6 @@ namespace TerrainMovement
         public static bool UnreachableTerrainCheck(this Map map, LocalTargetInfo target, Pawn pawn)
         {
             return pawn == null ? false : pawn.UnreachableTerrainCheck(target.Cell.GetTerrain(map));
-        }
-    }
-
-    [HarmonyPatch(typeof(Map), "FinalizeInit", new Type[0])]
-    public class Map_FinalizeInit_Patch
-    {
-        private static void Postfix()
-        {
-            MapExtensions.ResetLookup();
         }
     }
 
@@ -203,32 +189,17 @@ namespace TerrainMovement
 
     public static class PathGridExtensions
     {
-        public static bool IsPathCostIgnoreRepeater(ThingDef def)
-        {
-            // We might need to boost this for expensive terrain movements?
-            if (def.pathCost >= 25)
-            {
-                return def.pathCostIgnoreRepeat;
-            }
-            return false;
-        }
+        public static MethodInfo IsPathCostIgnoreRepeaterInfo = AccessTools.Method(typeof(PathGrid), "IsPathCostIgnoreRepeater");
+        public static MethodInfo ContainsPathCostIgnoreRepeaterInfo = AccessTools.Method(typeof(PathGrid), "ContainsPathCostIgnoreRepeater");
 
-        public static bool ContainsPathCostIgnoreRepeater(Map map, IntVec3 c)
+        public static int ApplyTerrainModToCalculatedCost(this PathGrid grid, TerrainDef terrain, int calcCost, int terrainMoveCost)
         {
-            List<Thing> list = map.thingGrid.ThingsListAt(c);
-            for (int i = 0; i < list.Count; i++)
-            {
-                if (IsPathCostIgnoreRepeater(list[i].def))
-                {
-                    return true;
-                }
-            }
-            return false;
+            return calcCost - terrain.pathCost + terrainMoveCost;
         }
 
         public static int TerrainCalculatedCostAt(this PathGrid grid, Map map, Pawn pawn, IntVec3 c, bool perceivedStatic, IntVec3 prevCell)
         {
-            int num = 0;
+            int num;
             bool flag = false;
             TerrainDef terrainDef = map.terrainGrid.TerrainAt(c);
             if (terrainDef == null || terrainDef.passability == Traversability.Impassable)
@@ -236,7 +207,7 @@ namespace TerrainMovement
                 return 10000;
             }
             // Replace the pathCost with a terrain aware value based on the best movement option for a pawn
-            //num = terrainDef.pathCost; 
+            //num = terrainDef.pathCost;
             num = pawn.TerrainMoveCost(terrainDef);
             List<Thing> list = map.thingGrid.ThingsListAt(c);
             for (int i = 0; i < list.Count; i++)
@@ -246,7 +217,7 @@ namespace TerrainMovement
                 {
                     return 10000;
                 }
-                if (!IsPathCostIgnoreRepeater(thing.def) || !prevCell.IsValid || !ContainsPathCostIgnoreRepeater(map, prevCell))
+                if (!(bool)IsPathCostIgnoreRepeaterInfo.Invoke(null, new object[] { thing.def }) || !prevCell.IsValid || !(bool)ContainsPathCostIgnoreRepeaterInfo.Invoke(grid, new object[] { prevCell }))
                 {
                     int pathCost = thing.def.pathCost;
                     if (pathCost > num)

@@ -8,7 +8,6 @@ using Verse.AI;
 
 namespace TerrainMovement
 {
-
     /*
      * It was easier to copy the ENTIRE class to be able to overwrite the giant FindPath method correctly
      */
@@ -230,7 +229,7 @@ namespace TerrainMovement
 			Dictionary<TerrainDef, int> pawnTerrainCacheDiagonal = new Dictionary<TerrainDef, int>();
 			Dictionary<TerrainDef, bool> pawnSpecialMovementCache = new Dictionary<TerrainDef, bool>();
 			Dictionary<TerrainDef, bool> pawnImpassibleMovementCache = new Dictionary<TerrainDef, bool>();
-			Dictionary<TerrainDef, int> pawnPerceivedMovementCache = new Dictionary<TerrainDef, int>();
+			Dictionary<TerrainDef, int> pawnTerrainMovementCache = new Dictionary<TerrainDef, int>();
 			// END CHANGED SECTION
 			CalculateAndAddDisallowedCorners(traverseParms, peMode, cellRect);
 			InitStatusesAndPushStartNode(ref curIndex, start);
@@ -298,6 +297,10 @@ namespace TerrainMovement
 					int num12 = (int)num10;
 					int num13 = (int)num11;
 					int num14 = cellIndices.CellToIndex(num12, num13);
+					if (calcGrid[num14].status == statusClosedValue && !flag8)
+					{
+						continue;
+					}
 					// BEGIN CHANGED SECTION
 					IntVec3 targetCell = new IntVec3(num12, 0, num13);
 					TerrainDef targetTerrain = topGrid[num14];
@@ -328,10 +331,6 @@ namespace TerrainMovement
 						}
 					}
 					// END CHANGED SECTION
-					if (calcGrid[num14].status == statusClosedValue && !flag8)
-					{
-						continue;
-					}
 					int num15 = 0;
 					bool flag10 = false;
 					//if (!flag2 && new IntVec3(num12, 0, num13).GetTerrain(map).HasTag("Water"))
@@ -434,6 +433,8 @@ namespace TerrainMovement
 					if (!flag10)
 					{
 						// BEGIN CHANGED SECTION
+						//num16 += array[num14];
+						//num16 = ((!flag9) ? (num16 + topGrid[num14].extraNonDraftedPerceivedPathCost) : (num16 + topGrid[num14].extraDraftedPerceivedPathCost));
 						if (pawn == null)
 						{
 							num16 += array[num14];
@@ -449,13 +450,14 @@ namespace TerrainMovement
 						else
 						{
 							// Use cache of terrain perceived cost instead of fixed pathCost grid to avoid a lot of repeated computation while maintaining accuracy
-							if (!pawnPerceivedMovementCache.TryGetValue(targetTerrain, out int perceivedCost))
+							if (!pawnTerrainMovementCache.TryGetValue(targetTerrain, out int terrainMoveCost))
 							{
-								perceivedCost = pathGrid.TerrainCalculatedCostAt(map, pawn, targetCell, true, IntVec3.Invalid);
-								pawnPerceivedMovementCache[targetTerrain] = perceivedCost;
+								terrainMoveCost = pawn.TerrainMoveCost(targetTerrain);
+								pawnTerrainMovementCache[targetTerrain] = terrainMoveCost;
 							}
-							num16 += perceivedCost;
-							//num16 = ((!flag9) ? (num16 + topGrid[num14].extraNonDraftedPerceivedPathCost) : (num16 + topGrid[num14].extraDraftedPerceivedPathCost));
+							// This was really really expensive, so we opted to mod this pre-calced value
+							//num16 += pathGrid.TerrainCalculatedCostAt(map, pawn, targetCell, true, IntVec3.Invalid, terrainMoveCost);
+							num16 += pathGrid.ApplyTerrainModToCalculatedCost(targetTerrain, array[num14], terrainMoveCost);
 							// Use cache of terrain movement indicators to avoid a lot of repeated computation
 							if (!pawnSpecialMovementCache.TryGetValue(targetTerrain, out bool specialMovement))
 							{
