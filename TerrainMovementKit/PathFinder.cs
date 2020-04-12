@@ -5,9 +5,21 @@ using System.Diagnostics;
 using UnityEngine;
 using Verse;
 using Verse.AI;
+using HarmonyLib;
 
 namespace TerrainMovement
 {
+	
+    [HarmonyPatch(typeof(PathFinder), "FindPath", new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode) })]
+    public class TerrainPathPatch
+    {
+        static bool Prefix(ref PawnPath __result, Map ___map, IntVec3 start, LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
+        {
+            __result = ___map.TerrainAwarePather().FindPath(start, dest, traverseParms, peMode);
+            return false;
+        }
+    }
+
     /*
      * It was easier to copy the ENTIRE class to be able to overwrite the giant FindPath method correctly
      */
@@ -167,6 +179,7 @@ namespace TerrainMovement
 			Pawn pawn = traverseParms.pawn;
 			if (pawn != null && pawn.Map != map)
 			{
+				Log.Warning(String.Format("Map object was rebuilt, but new pather was not assigned to new map (new {0}) (old {1})", pawn.Map.uniqueID, map.uniqueID));
 				Log.Error("Tried to FindPath for pawn which is spawned in another map. His map PathFinder should have been used, not this one. pawn=" + pawn + " pawn.Map=" + pawn.Map + " map=" + map);
 				return PawnPath.NotFound;
 			}
@@ -309,7 +322,7 @@ namespace TerrainMovement
 						// Use cache of terrain movement indicators to avoid a lot of repeated computation
 						if (!pawnImpassibleMovementCache.TryGetValue(targetTerrain, out bool impassible))
 						{
-							impassible = pawn.UnreachableTerrainCheck(targetTerrain);
+							impassible = pawn.kindDef.UnreachableTerrainCheck(targetTerrain);
 							pawnImpassibleMovementCache[targetTerrain] = impassible;
 						}
 						if (impassible)
