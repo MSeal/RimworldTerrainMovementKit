@@ -311,6 +311,7 @@
     <Compile Include="PathFinder.cs" />
     <Compile Include="Pawn.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Reflection.cs" />
     <Compile Include="TerrainDef.cs" />
     <Compile Include="Mod.cs" />
   </ItemGroup>

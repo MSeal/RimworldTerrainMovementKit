@@ -12,7 +12,7 @@ using Verse.AI;
 
 namespace TerrainMovement
 {
-    [HarmonyPatch(typeof(ManhunterPackIncidentUtility), "TryFindManhunterAnimalKind")]
+    [HarmonyPatch(typeof(ManhunterPackIncidentUtility), "TryFindManhunterAnimalKind", new Type[] { typeof(float), typeof(int), typeof(PawnKindDef) }, new ArgumentType[] { ArgumentType.Normal, ArgumentType.Normal, ArgumentType.Out })]
     public class ManhunterPackIncidentUtility_AnimalKind_Patch
     {
         static bool Prefix(ref bool __result, float points, int tile, out PawnKindDef animalKind)
@@ -42,7 +42,7 @@ namespace TerrainMovement
         }
     }
 
-    [HarmonyPatch(typeof(SignalAction_Ambush), "DoAction")]
+    [HarmonyPatch(typeof(SignalAction_Ambush), "DoAction", new Type[] { typeof(SignalArgs) })]
     public class SignalAction_Ambush_DoAction_Patch
     {
         static MethodInfo GenerateAmbushPawnsInfo = AccessTools.Method(typeof(SignalAction_Ambush), "GenerateAmbushPawns");
@@ -118,7 +118,7 @@ namespace TerrainMovement
         }
     }
 
-    [HarmonyPatch(typeof(IncidentWorker_FarmAnimalsWanderIn), "CanFireNowSub")]
+    [HarmonyPatch(typeof(IncidentWorker_FarmAnimalsWanderIn), "CanFireNowSub", new Type[] { typeof(IncidentParms) })]
     public class FarmAnimalsWanderIn_CanFireNowSub_TerrainAware
     {
         public static MethodInfo BaseCanFireNowSubInfo = AccessTools.Method(typeof(IncidentWorker), "CanFireNowSub");
@@ -126,7 +126,7 @@ namespace TerrainMovement
 
         static bool Prefix(ref bool __result, IncidentWorker_FarmAnimalsWanderIn __instance, IncidentParms parms)
         {
-            if (!(bool)BaseCanFireNowSubInfo.Invoke((IncidentWorker)__instance, new object[] { parms }))
+            if (!(bool)BaseCanFireNowSubInfo.InvokeNotOverride(__instance, new object[] { parms }))
             {
                 __result = false;
             }
@@ -144,10 +144,10 @@ namespace TerrainMovement
         }
     }
 
-    [HarmonyPatch(typeof(IncidentWorker_FarmAnimalsWanderIn), "TryExecuteWorker")]
+    [HarmonyPatch(typeof(IncidentWorker_FarmAnimalsWanderIn), "TryExecuteWorker", new Type[] { typeof(IncidentParms) })]
     public class FarmAnimalsWanderIn_TryExecuteWorker_TerrainAware
     {
-        public static MethodInfo SendStandardLetterInfo = AccessTools.Method(typeof(IncidentWorker_FarmAnimalsWanderIn), "SendStandardLetter");
+        public static MethodInfo SendStandardLetterInfo = AccessTools.Method(typeof(IncidentWorker_FarmAnimalsWanderIn), "SendStandardLetter", new Type[] { typeof(TaggedString), typeof(TaggedString), typeof(LetterDef), typeof(IncidentParms), typeof(LookTargets), typeof(NamedArgument[]) });
         public static MethodInfo TryFindRandomPawnKindInfo = AccessTools.Method(typeof(IncidentWorker_FarmAnimalsWanderIn), "TryFindRandomPawnKind");
 
         static bool Prefix(ref bool __result, IncidentWorker_FarmAnimalsWanderIn __instance, IncidentParms parms)
@@ -173,7 +173,7 @@ namespace TerrainMovement
                 GenSpawn.Spawn(pawn, loc, map, Rot4.Random);
                 pawn.SetFaction(Faction.OfPlayer);
             }
-            SendStandardLetterInfo.Invoke(__instance, new object[] { "LetterLabelFarmAnimalsWanderIn".Translate(kind.GetLabelPlural()).CapitalizeFirst(), "LetterFarmAnimalsWanderIn".Translate(kind.GetLabelPlural()), LetterDefOf.PositiveEvent, parms, new TargetInfo(result, map) });
+            SendStandardLetterInfo.Invoke(__instance, new object[] { "LetterLabelFarmAnimalsWanderIn".Translate(kind.GetLabelPlural()).CapitalizeFirst(), "LetterFarmAnimalsWanderIn".Translate(kind.GetLabelPlural()), LetterDefOf.PositiveEvent, parms, new LookTargets(result, map), new NamedArgument[0] { } });
             return false;
         }
     }
@@ -203,10 +203,10 @@ namespace TerrainMovement
         }
     }
 
-    [HarmonyPatch(typeof(IncidentWorker_HerdMigration), "CanFireNowSub")]
+    [HarmonyPatch(typeof(IncidentWorker_HerdMigration), "CanFireNowSub", new Type[] { typeof(IncidentParms) })]
     public class HerdMigration_CanFireNowSub_TerrainAware
     {
-        public static MethodInfo TryFindRandomPawnKindInfo = AccessTools.Method(typeof(IncidentWorker_HerdMigration), "TryFindRandomPawnKind");
+        public static MethodInfo TryFindAnimalKindInfo = AccessTools.Method(typeof(IncidentWorker_HerdMigration), "TryFindAnimalKind");
 
         static bool Prefix(ref bool __result, ref IncidentWorker_HerdMigration __instance, IncidentParms parms)
         {
@@ -214,25 +214,25 @@ namespace TerrainMovement
             IntVec3 start;
             IntVec3 end;
             object[] parameters = new object[] { map.Tile, null };
-            bool flag = (bool)TryFindRandomPawnKindInfo.Invoke(__instance, parameters);
+            bool flag = (bool)TryFindAnimalKindInfo.Invoke(__instance, parameters);
             PawnKindDef kind = (PawnKindDef)parameters[1];
             __result = flag && __instance.TryFindStartAndEndCells(map, kind, out start, out end);
             return false;
         }
     }
 
-    [HarmonyPatch(typeof(IncidentWorker_HerdMigration), "TryExecuteWorker")]
+    [HarmonyPatch(typeof(IncidentWorker_HerdMigration), "TryExecuteWorker", new Type[] { typeof(IncidentParms) })]
     public class HerdMigration_TryExecuteWorker_TerrainAware
     {
-        public static MethodInfo SendStandardLetterInfo = AccessTools.Method(typeof(IncidentWorker_HerdMigration), "SendStandardLetter");
-        public static MethodInfo TryFindRandomPawnKindInfo = AccessTools.Method(typeof(IncidentWorker_HerdMigration), "TryFindRandomPawnKind");
+        public static MethodInfo SendStandardLetterInfo = AccessTools.Method(typeof(IncidentWorker_HerdMigration), "SendStandardLetter", new Type[] { typeof(TaggedString), typeof(TaggedString), typeof(LetterDef), typeof(IncidentParms), typeof(LookTargets), typeof(NamedArgument[]) });
+        public static MethodInfo TryFindAnimalKindInfo = AccessTools.Method(typeof(IncidentWorker_HerdMigration), "TryFindAnimalKind");
         public static MethodInfo GenerateAnimalsInfo = AccessTools.Method(typeof(IncidentWorker_HerdMigration), "GenerateAnimals");
 
         static bool Prefix(ref bool __result, ref IncidentWorker_HerdMigration __instance, IncidentParms parms)
         {
             Map map = (Map)parms.target;
             object[] parameters = new object[] { map.Tile, null };
-            bool flag = (bool)TryFindRandomPawnKindInfo.Invoke(__instance, parameters);
+            bool flag = (bool)TryFindAnimalKindInfo.Invoke(__instance, parameters);
             PawnKindDef animalKind = (PawnKindDef)parameters[1];
             if (!flag)
             {
@@ -253,9 +253,9 @@ namespace TerrainMovement
                 GenSpawn.Spawn(newThing, loc, map, rot);
             }
             LordMaker.MakeNewLord(null, new LordJob_ExitMapNear(end, LocomotionUrgency.Walk), map, list);
-            string str = string.Format(__instance.def.letterText, animalKind.GetLabelPlural()).CapitalizeFirst();
-            string str2 = string.Format(__instance.def.letterLabel, animalKind.GetLabelPlural().CapitalizeFirst());
-            SendStandardLetterInfo.Invoke(__instance, new object[] { str2, str, __instance.def.letterDef, parms, list[0] });
+            TaggedString str = new TaggedString(string.Format(__instance.def.letterText, animalKind.GetLabelPlural()).CapitalizeFirst());
+            TaggedString str2 = new TaggedString(string.Format(__instance.def.letterLabel, animalKind.GetLabelPlural().CapitalizeFirst()));
+            SendStandardLetterInfo.Invoke(__instance, new object[] { str2, str, __instance.def.letterDef, parms, new LookTargets(list[0]), new NamedArgument[0] { } });
             __result = true;
             return false;
         }
@@ -266,7 +266,7 @@ namespace TerrainMovement
     // TODO IncidentWorker_NeutralGroup.SpawnPawns, .TryResolveParmsGeneral
 
     // Patching these two methods saves a LOT of other patches, even though this has nothing to do with temperature
-    [HarmonyPatch(typeof(TileTemperaturesComp), "SeasonAcceptableFor")]
+    [HarmonyPatch(typeof(TileTemperaturesComp), "SeasonAcceptableFor", new Type[] { typeof(int), typeof(ThingDef) })]
     public class TileTemperaturesComp_SeasonAcceptableFor_TerrainAwareHack
     {
         static void Postfix(ref bool __result, int tile, ThingDef animalRace)
@@ -281,7 +281,7 @@ namespace TerrainMovement
         }
     }
 
-    [HarmonyPatch(typeof(TileTemperaturesComp), "OutdoorTemperatureAcceptableFor")]
+    [HarmonyPatch(typeof(TileTemperaturesComp), "OutdoorTemperatureAcceptableFor", new Type[] { typeof(int), typeof(ThingDef) })]
     public class TileTemperaturesComp_OutdoorTemperatureAcceptableFor_TerrainAwareHack
     {
         static void Postfix(ref bool __result, int tile, ThingDef animalRace)
