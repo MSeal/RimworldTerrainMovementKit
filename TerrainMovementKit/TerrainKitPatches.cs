@@ -60,14 +60,14 @@ namespace TerrainMovement
 
     public static class MapExtensions
     {
-        public static Dictionary<int, TerrainAwarePathFinder> PatherLookup = new Dictionary<int, TerrainAwarePathFinder>();
+        public static Dictionary<Map, TerrainAwarePathFinder> PatherLookup = new Dictionary<Map, TerrainAwarePathFinder>();
 
         public static TerrainAwarePathFinder TerrainAwarePather(this Map map)
         {
-            if (!PatherLookup.TryGetValue(map.uniqueID, out TerrainAwarePathFinder pather))
+            if (!PatherLookup.TryGetValue(map, out TerrainAwarePathFinder pather))
             {
                 pather = new TerrainAwarePathFinder(map);
-                PatherLookup.Add(map.uniqueID, pather);
+                PatherLookup.Add(map, pather);
             }
             return pather;
         }
