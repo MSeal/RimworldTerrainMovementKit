@@ -1,70 +1,95 @@
-﻿using System;
+﻿using HarmonyLib;
+using System;
+using System.Linq;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
+using Verse;
 
 namespace TerrainMovement
 {
     public static class ReflectionExtension
     {
-        // Taken from http://www.simplygoodcode.com/2012/08/invoke-base-method-using-reflection/index.html -- Thank you for that how-to!
-        public static object InvokeNotOverride(this MethodInfo methodInfo, object targetObject, params object[] arguments)
+        // Taken from http://kennethxu.blogspot.com/2009/05/strong-typed-high-performance.html -- Thank you for that how-to!
+        public static DynamicMethod CreateNonVirtualDynamicMethod(this MethodInfo method)
         {
-            var parameters = methodInfo.GetParameters();
-
-            if (parameters.Length == 0)
+            int offset = (method.IsStatic ? 0 : 1);
+            var parameters = method.GetParameters();
+            int size = parameters.Length + offset;
+            Type[] types = new Type[size];
+            if (offset > 0) types[0] = method.DeclaringType;
+            for (int i = offset; i < size; i++)
             {
-                if (arguments != null && arguments.Length != 0)
-                    throw new Exception("Arguments cont doesn't match");
-            }
-            else
-            {
-                if (parameters.Length != arguments.Length)
-                    throw new Exception("Arguments cont doesn't match");
+                types[i] = parameters[i - offset].ParameterType;
             }
 
-            Type returnType = null;
-            if (methodInfo.ReturnType != typeof(void))
+            DynamicMethod dynamicMethod = new DynamicMethod(
+                "NonVirtualInvoker_" + method.Name, method.ReturnType, types, method.DeclaringType);
+            ILGenerator il = dynamicMethod.GetILGenerator();
+            for (int i = 0; i < types.Length; i++) il.Emit(OpCodes.Ldarg, i);
+            il.EmitCall(OpCodes.Call, method, null);
+            il.Emit(OpCodes.Ret);
+            return dynamicMethod;
+        }
+
+        // Helper for defining function signature needed for function replacement
+        public delegate List<CodeInstruction> CodeInstructionReplacementFunction(List<CodeInstruction> opsUpToCall, CodeInstruction callInstruction);
+
+        // Used to replace a function call in a transpiler patch
+        public static IEnumerable<CodeInstruction> ReplaceFunction(this IEnumerable<CodeInstruction> instructions, CodeInstructionReplacementFunction func, string patchCallName, string originalFuncName, OpCode? codeToMatch = null, bool repeat = true)
+        {
+            if (codeToMatch == null)
             {
-                returnType = methodInfo.ReturnType;
+                codeToMatch = OpCodes.Call;
             }
-
-            var type = targetObject.GetType();
-            var dynamicMethod = new DynamicMethod("", returnType,
-                    new Type[] { type, typeof(Object) }, type);
-
-            var iLGenerator = dynamicMethod.GetILGenerator();
-            iLGenerator.Emit(OpCodes.Ldarg_0); // this
-
-            for (var i = 0; i < parameters.Length; i++)
+            bool found = false;
+            List<CodeInstruction> runningChanges = new List<CodeInstruction>();
+            foreach (CodeInstruction instruction in instructions)
             {
-                var parameter = parameters[i];
-
-                iLGenerator.Emit(OpCodes.Ldarg_1); // load array argument
-
-                // get element at index
-                iLGenerator.Emit(OpCodes.Ldc_I4_S, i); // specify index
-                iLGenerator.Emit(OpCodes.Ldelem_Ref); // get element
-
-                var parameterType = parameter.ParameterType;
-                if (parameterType.IsPrimitive)
+                // Find the section calling TryFindRandomPawnEntryCell
+                if ((repeat || !found) && instruction.opcode == codeToMatch && (instruction.operand as MethodInfo)?.Name == patchCallName)
                 {
-                    iLGenerator.Emit(OpCodes.Unbox_Any, parameterType);
-                }
-                else if (parameterType == typeof(object))
-                {
-                    // do nothing
+                    runningChanges = func(runningChanges, instruction).ToList();
+                    found = true;
                 }
                 else
                 {
-                    iLGenerator.Emit(OpCodes.Castclass, parameterType);
+                    runningChanges.Add(instruction);
                 }
             }
+            if (!found)
+            {
+                Log.ErrorOnce(String.Format("[TerrainMovementKit] Cannot find {0} in {1}, skipping patch", patchCallName, originalFuncName), patchCallName.GetHashCode() + originalFuncName.GetHashCode());
+            }
+            return runningChanges.AsEnumerable();
+        }
 
-            iLGenerator.Emit(OpCodes.Call, methodInfo);
-            iLGenerator.Emit(OpCodes.Ret);
+        public static List<CodeInstruction> PreCallReplaceFunctionArgument(List<CodeInstruction> opsUpToCall, MethodInfo newMethod, CodeInstruction addedArgument, int distanceFromRight)
+        {
+            List<CodeInstruction> rightMostArgs = new List<CodeInstruction>();
+            // Pop the last few parameters
+            for (int i = 0; i < distanceFromRight; i++)
+            {
+                rightMostArgs.Insert(0, opsUpToCall.Pop());
+            }
+            // Add the new parameter
+            opsUpToCall.Add(addedArgument);
+            // Add the last few parameters back
+            opsUpToCall.AddRange(rightMostArgs);
+            // Add call to new method
+            opsUpToCall.Add(new CodeInstruction(OpCodes.Call, newMethod));
+            return opsUpToCall;
+        }
 
-            return dynamicMethod.Invoke(null, new object[] { targetObject, arguments });
+        public static IEnumerable<CodeInstruction> ReplaceFunctionArgument(this IEnumerable<CodeInstruction> instructions, MethodInfo newMethod, CodeInstruction addedArgument, int distanceFromRight, string patchCallName, string originalFuncName, bool repeat = true)
+        {
+            return ReplaceFunction(
+                instructions,
+                (opsUpToCall, _callInstruction) => PreCallReplaceFunctionArgument(opsUpToCall, newMethod, addedArgument, distanceFromRight),
+                patchCallName,
+                originalFuncName,
+                null,
+                repeat);
         }
     }
 }
-

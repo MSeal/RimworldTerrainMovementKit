@@ -9,6 +9,7 @@ using Verse.AI.Group;
 using System.Reflection;
 using RimWorld.Planet;
 using Verse.AI;
+using System.Reflection.Emit;
 
 namespace TerrainMovement
 {
@@ -42,8 +43,9 @@ namespace TerrainMovement
         }
     }
 
+    // TODO: Make this a transpile change (lots of work...)
     [HarmonyPatch(typeof(SignalAction_Ambush), "DoAction", new Type[] { typeof(SignalArgs) })]
-    public class SignalAction_Ambush_DoAction_Patch
+    public class SignalAction_Ambush_DoAction_Patch2
     {
         static MethodInfo GenerateAmbushPawnsInfo = AccessTools.Method(typeof(SignalAction_Ambush), "GenerateAmbushPawns");
         static bool Prefix(ref SignalAction_Ambush __instance, SignalArgs args)
@@ -118,15 +120,16 @@ namespace TerrainMovement
         }
     }
 
+    // Need to replace the whole function here to rearrange things rather than transpile it
     [HarmonyPatch(typeof(IncidentWorker_FarmAnimalsWanderIn), "CanFireNowSub", new Type[] { typeof(IncidentParms) })]
     public class FarmAnimalsWanderIn_CanFireNowSub_TerrainAware
     {
-        public static MethodInfo BaseCanFireNowSubInfo = AccessTools.Method(typeof(IncidentWorker), "CanFireNowSub");
+        public static MethodInfo BaseCanFireNowSubInfo = AccessTools.Method(typeof(IncidentWorker), "CanFireNowSub").CreateNonVirtualDynamicMethod();
         public static MethodInfo TryFindRandomPawnKindInfo = AccessTools.Method(typeof(IncidentWorker_FarmAnimalsWanderIn), "TryFindRandomPawnKind");
 
         static bool Prefix(ref bool __result, IncidentWorker_FarmAnimalsWanderIn __instance, IncidentParms parms)
         {
-            if (!(bool)BaseCanFireNowSubInfo.InvokeNotOverride(__instance, new object[] { parms }))
+            if (!(bool)BaseCanFireNowSubInfo.Invoke(null, new object[] { __instance, parms }))
             {
                 __result = false;
             }
@@ -144,6 +147,7 @@ namespace TerrainMovement
         }
     }
 
+    // Need to replace the whole function here to rearrange things rather than transpile it
     [HarmonyPatch(typeof(IncidentWorker_FarmAnimalsWanderIn), "TryExecuteWorker", new Type[] { typeof(IncidentParms) })]
     public class FarmAnimalsWanderIn_TryExecuteWorker_TerrainAware
     {
@@ -177,6 +181,7 @@ namespace TerrainMovement
             return false;
         }
     }
+
     public static class IncidentWorker_HerdMigration_Extensions
     {
         public static bool TryFindStartAndEndCells(this IncidentWorker_HerdMigration hm, Map map, PawnKindDef kind, out IntVec3 start, out IntVec3 end)
@@ -203,67 +208,225 @@ namespace TerrainMovement
         }
     }
 
-    [HarmonyPatch(typeof(IncidentWorker_HerdMigration), "CanFireNowSub", new Type[] { typeof(IncidentParms) })]
-    public class HerdMigration_CanFireNowSub_TerrainAware
+    [HarmonyPatch(typeof(IncidentWorker_HerdMigration), "CanFireNowSub")]
+    public static class IncidentWorker_HerdMigration_CanFireNowSub_Patch
     {
-        public static MethodInfo TryFindAnimalKindInfo = AccessTools.Method(typeof(IncidentWorker_HerdMigration), "TryFindAnimalKind");
+        public static MethodInfo TryFindStartAndEndCellsInfo = AccessTools.Method(typeof(IncidentWorker_HerdMigration_Extensions), "TryFindStartAndEndCells");
 
-        static bool Prefix(ref bool __result, ref IncidentWorker_HerdMigration __instance, IncidentParms parms)
+        // Changes
+        // TryFindStartAndEndCells(Map map, out IntVec3 start, out IntVec3 end) 
+        // ->
+        // TryFindStartAndEndCells(Map map, PawnKindDef kind, out IntVec3 start, out IntVec3 end)
+        public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
-            Map map = (Map)parms.target;
-            IntVec3 start;
-            IntVec3 end;
-            object[] parameters = new object[] { map.Tile, null };
-            bool flag = (bool)TryFindAnimalKindInfo.Invoke(__instance, parameters);
-            PawnKindDef kind = (PawnKindDef)parameters[1];
-            __result = flag && __instance.TryFindStartAndEndCells(map, kind, out start, out end);
+            return instructions.ReplaceFunctionArgument(
+                TryFindStartAndEndCellsInfo,
+                new CodeInstruction(OpCodes.Ldloc_1),
+                2,
+                "TryFindStartAndEndCells",
+                "IncidentWorker_HerdMigration.CanFireNowSub");
+        }
+    }
+
+    [HarmonyPatch(typeof(IncidentWorker_HerdMigration), "TryExecuteWorker")]
+    public class HerdMigration_TryExecuteWorker_TerrainAware_Patch
+    {
+        public static MethodInfo TryFindStartAndEndCellsInfo = AccessTools.Method(typeof(IncidentWorker_HerdMigration_Extensions), "TryFindStartAndEndCells");
+        public static MethodInfo RandomClosewalkCellNearInfo = AccessTools.Method(typeof(CellFinderExtended), "RandomClosewalkCellNear");
+
+        // Changes
+        // CellFinder.RandomClosewalkCellNear(IntVec3 root, Map map, int radius, Predicate<IntVec3> extraValidator = null) 
+        // ->
+        // CellFinderExtended.RandomClosewalkCellNear(IntVec3 root, Map map, PawnKindDef kind, int radius, Predicate<IntVec3> extraValidator = null)
+        //
+        // Changes
+        // TryFindStartAndEndCells(Map map, out IntVec3 start, out IntVec3 end) 
+        // ->
+        // TryFindStartAndEndCells(Map map, PawnKindDef kind, out IntVec3 start, out IntVec3 end)
+        public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            return instructions.ReplaceFunctionArgument(
+                TryFindStartAndEndCellsInfo,
+                new CodeInstruction(OpCodes.Ldloc_1),
+                2,
+                "TryFindStartAndEndCells",
+                "IncidentWorker_HerdMigration.TryExecuteWorker"
+            ).ReplaceFunctionArgument(
+                RandomClosewalkCellNearInfo,
+                new CodeInstruction(OpCodes.Ldloc_1),
+                2,
+                "RandomClosewalkCellNear",
+                "IncidentWorker_HerdMigration.TryExecuteWorker");
+        }
+    }
+
+    [HarmonyPatch(typeof(IncidentWorker_ManhunterPack), "TryExecuteWorker")]
+    public static class IncidentWorker_ManhunterPack_TryExecuteWorker_Patch
+    {
+        public static MethodInfo TryFindRandomPawnEntryCellInfo = AccessTools.Method(typeof(RCellFinderExtended), "TryFindRandomPawnEntryCell");
+        public static MethodInfo RandomClosewalkCellNearInfo = AccessTools.Method(typeof(CellFinderExtended), "RandomClosewalkCellNear");
+
+        // Changes
+        // RCellFinder.TryFindRandomPawnEntryCell(out IntVec3 result, Map map, float roadChance, bool allowFogged) 
+        // ->
+        // RCellFinderExtended.TryFindRandomPawnEntryCell(out IntVec3 result, Map map, PawnKindDef kind, float roadChance, bool allowFogged)
+        //
+        // Changes
+        // CellFinder.RandomClosewalkCellNear(IntVec3 root, Map map, PawnKindDef kind, int radius, Predicate<IntVec3> extraValidator = null) 
+        // ->
+        // CellFinderExtended.RandomClosewalkCellNear(IntVec3 root, Map map, PawnKindDef kind, int radius, Predicate<IntVec3> extraValidator = null)
+        public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            return instructions.ReplaceFunctionArgument(
+                TryFindRandomPawnEntryCellInfo,
+                new CodeInstruction(OpCodes.Ldloc_1),
+                3,
+                "TryFindRandomPawnEntryCell",
+                "IncidentWorker_ManhunterPack.TryExecuteWorker"
+            ).ReplaceFunctionArgument(
+                RandomClosewalkCellNearInfo,
+                new CodeInstruction(OpCodes.Ldloc_1),
+                2,
+                "RandomClosewalkCellNear",
+                "IncidentWorker_ManhunterPack.TryExecuteWorker");
+        }
+    }
+
+    public static class PawnGroupMakerParmsExtended
+    {
+        public static bool MapAllowed(this PawnGroupMakerParms parms, PawnGenOption pawnOpt)
+        {
+            if (parms.tile >= 0 && MapExtensions.TileLookup.TryGetValue(parms.tile, out Map map))
+            {
+                return map.PawnKindCanEnter(pawnOpt.kind);
+            }
+            return true;
+        }
+    }
+
+    // This makes caravans and other group spawners restrict pawns to ones that can enter the map
+    [HarmonyPatch(typeof(PawnGroupMakerUtility), "ChoosePawnGenOptionsByPoints")]
+    public static class PawnGroupMakerUtility_ChoosePawnGenOptionsByPoints_Patch
+    {
+        public static MethodInfo TryFindRandomPawnEntryCellInfo = AccessTools.Method(typeof(PawnGroupMakerParmsExtended), "MapAllowed");
+
+        public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            var list = instructions.ToList();
+            bool costInjectFound = false;
+            int injectIndex = -1;
+            int costCounts = 0;
+            CodeInstruction pawnOptOp = null;
+            object endLoopLoc = null;
+            // We need to inject a conditional check after the second get_Cost call
+            for (int i = 0; i < list.Count(); i++)
+            {
+                var inst = list[i];
+                if (injectIndex < 0 && inst.opcode == OpCodes.Callvirt && (inst.operand as MethodInfo)?.Name == "get_Cost")
+                {
+                    costCounts += 1;
+                    if (costCounts == 2)
+                    {
+                        injectIndex = i + 3;
+                        pawnOptOp = list[i - 1];
+                        endLoopLoc = list[i + 2].operand;
+                    }
+                }
+                if (i == injectIndex)
+                {
+                    // Add groupParms
+                    //Log.Warning(String.Format("INJECTING {0}, {1} -> {2}", OpCodes.Ldarg_2, null, null));
+                    yield return new CodeInstruction(OpCodes.Ldarg_2);
+                    // Add pawnOpt
+                    //Log.Warning(String.Format("INJECTING {0}, {1} -> {2}", pawnOptOp.opcode, pawnOptOp.operand, null));
+                    yield return pawnOptOp;
+                    // Call MapAllowed
+                    //Log.Warning(String.Format("INJECTING {0}, {1} -> {2}", OpCodes.Call, TryFindRandomPawnEntryCellInfo, TryFindRandomPawnEntryCellInfo?.Name));
+                    yield return new CodeInstruction(OpCodes.Call, TryFindRandomPawnEntryCellInfo);
+                    // Exit conditional if false
+                    //Log.Warning(String.Format("INJECTING {0}, {1} -> {2}", OpCodes.Brfalse_S, endLoopLoc, null));
+                    yield return new CodeInstruction(OpCodes.Brfalse_S, endLoopLoc);
+                    costInjectFound = true;
+                }
+                //Log.Message(String.Format("Yielding {0}, {1} -> {2}", inst.opcode, inst.operand, (inst.operand as MethodInfo)?.Name));
+                yield return inst;
+            }
+            
+            if (!costInjectFound)
+            {
+                Log.ErrorOnce(String.Format("[TerrainMovementKit] Cannot find location to inject pawn terrain awareness into {0}, skipping patch", "PawnGroupMakerUtility.ChoosePawnGenOptionsByPoints"), "PawnGroupMakerUtility.ChoosePawnGenOptionsByPoints".GetHashCode());
+            }
+        }
+    }
+
+    // This makes caravan placement spawn on valid tiles to avoid teleportation
+    [HarmonyPatch(typeof(CaravanEnterMapUtility), "Enter", new Type[] {
+        typeof(Caravan), typeof(Map), typeof(CaravanEnterMode), typeof(CaravanDropInventoryMode), typeof(bool), typeof(Predicate<IntVec3>)
+    })]
+    public static class CaravanEnterMapUtility_Enter_Patch
+    {
+        public static MethodInfo GetEnterCellInfo = AccessTools.Method(typeof(CaravanEnterMapUtility), "GetEnterCell");
+        public static MethodInfo EnterWithFuncInfo = AccessTools.Method(typeof(CaravanEnterMapUtility), "Enter", new Type[] {
+            typeof(Caravan), typeof(Map), typeof(Func<Pawn, IntVec3>), typeof(CaravanDropInventoryMode), typeof(bool)
+        });
+
+        public static bool Prefix(Caravan caravan, Map map, CaravanEnterMode enterMode, CaravanDropInventoryMode dropInventoryMode = CaravanDropInventoryMode.DoNotDrop, bool draftColonists = false, Predicate<IntVec3> extraCellValidator = null)
+        {
+            if (enterMode == CaravanEnterMode.None)
+            {
+                Log.Error("Caravan " + caravan + " tried to enter map " + map + " with enter mode " + enterMode);
+                enterMode = CaravanEnterMode.Edge;
+            }
+            Predicate<IntVec3> wrapped = (IntVec3 x) => (extraCellValidator == null || extraCellValidator(x)) && map.PawnKindCanEnter(caravan.pawns.InnerListForReading.First().kindDef);
+            IntVec3 enterCell = (IntVec3)GetEnterCellInfo.Invoke(null, new object[] { caravan, map, enterMode, wrapped });
+            Func<Pawn, IntVec3> spawnCellGetter = (Pawn p) => CellFinderExtended.RandomSpawnCellForPawnNear(enterCell, map, p.kindDef);
+            EnterWithFuncInfo.Invoke(null, new object[] { caravan, map, spawnCellGetter, dropInventoryMode, draftColonists });
             return false;
         }
     }
 
-    [HarmonyPatch(typeof(IncidentWorker_HerdMigration), "TryExecuteWorker", new Type[] { typeof(IncidentParms) })]
-    public class HerdMigration_TryExecuteWorker_TerrainAware
+    // This makes caravans not targeting a map to use player home defaults for restrictions
+    [HarmonyPatch(typeof(IncidentWorker_CaravanMeeting), "GenerateCaravanPawns")]
+    public static class IncidentWorker_CaravanMeeting_GenerateCaravanPawns_Patch
     {
-        public static MethodInfo SendStandardLetterInfo = AccessTools.Method(typeof(IncidentWorker_HerdMigration), "SendStandardLetter", new Type[] { typeof(TaggedString), typeof(TaggedString), typeof(LetterDef), typeof(IncidentParms), typeof(LookTargets), typeof(NamedArgument[]) });
-        public static MethodInfo TryFindAnimalKindInfo = AccessTools.Method(typeof(IncidentWorker_HerdMigration), "TryFindAnimalKind");
-        public static MethodInfo GenerateAnimalsInfo = AccessTools.Method(typeof(IncidentWorker_HerdMigration), "GenerateAnimals");
+        public static MethodInfo GetEnterCellInfo = AccessTools.Method(typeof(CaravanEnterMapUtility), "GetEnterCell");
+        public static MethodInfo EnterWithFuncInfo = AccessTools.Method(typeof(CaravanEnterMapUtility), "Enter", new Type[] {
+            typeof(Caravan), typeof(Map), typeof(Func<Pawn, IntVec3>), typeof(CaravanDropInventoryMode), typeof(bool)
+        });
 
-        static bool Prefix(ref bool __result, ref IncidentWorker_HerdMigration __instance, IncidentParms parms)
+        public static bool Prefix(ref List<Pawn> __result, Faction faction)
         {
-            Map map = (Map)parms.target;
-            object[] parameters = new object[] { map.Tile, null };
-            bool flag = (bool)TryFindAnimalKindInfo.Invoke(__instance, parameters);
-            PawnKindDef animalKind = (PawnKindDef)parameters[1];
-            if (!flag)
+            __result = PawnGroupMakerUtility.GeneratePawns(new PawnGroupMakerParms
             {
-                __result = false;
-                return false;
-            }
-            if (!__instance.TryFindStartAndEndCells(map, animalKind, out IntVec3 start, out IntVec3 end))
-            {
-                __result = false;
-                return false;
-            }
-            Rot4 rot = Rot4.FromAngleFlat((map.Center - start).AngleFlat);
-            List<Pawn> list = (List<Pawn>)GenerateAnimalsInfo.Invoke(__instance, new object[] { animalKind, map.Tile });
-            for (int i = 0; i < list.Count; i++)
-            {
-                Pawn newThing = list[i];
-                IntVec3 loc = CellFinderExtended.RandomClosewalkCellNear(start, map, animalKind, 10);
-                GenSpawn.Spawn(newThing, loc, map, rot);
-            }
-            LordMaker.MakeNewLord(null, new LordJob_ExitMapNear(end, LocomotionUrgency.Walk), map, list);
-            TaggedString str = new TaggedString(string.Format(__instance.def.letterText, animalKind.GetLabelPlural()).CapitalizeFirst());
-            TaggedString str2 = new TaggedString(string.Format(__instance.def.letterLabel, animalKind.GetLabelPlural().CapitalizeFirst()));
-            SendStandardLetterInfo.Invoke(__instance, new object[] { str2, str, __instance.def.letterDef, parms, new LookTargets(list[0]), new NamedArgument[0] { } });
-            __result = true;
+                tile = Find.AnyPlayerHomeMap.Tile,
+                groupKind = PawnGroupKindDefOf.Trader,
+                faction = faction,
+                points = TraderCaravanUtility.GenerateGuardPoints(),
+                dontUseSingleUseRocketLaunchers = true
+            }).ToList();
             return false;
         }
     }
 
-    // TODO IncidentWorker_ManhunterPack.TryExecuteWorker
-    // TODO IncidentWorker_CaravanMeeting.TryExecuteWorker
-    // TODO IncidentWorker_NeutralGroup.SpawnPawns, .TryResolveParmsGeneral
+    // TODO transpiler for better compatability
+    [HarmonyPatch(typeof(IncidentWorker_NeutralGroup), "SpawnPawns", new Type[] { typeof(IncidentParms) })]
+    public class IncidentWorker_NeutralGroup_SpawnPawns_TerrainAware_Patch
+    {
+        public static MethodInfo PawnGroupKindDefInfo = AccessTools.PropertyGetter(typeof(IncidentWorker_NeutralGroup), "PawnGroupKindDef");
+
+        public static bool Prefix(ref List<Pawn> __result, IncidentWorker_NeutralGroup __instance, IncidentParms parms)
+        {
+            Map map = (Map)parms.target;
+            List<Pawn> list = PawnGroupMakerUtility.GeneratePawns(IncidentParmsUtility.GetDefaultPawnGroupMakerParms((PawnGroupKindDef)PawnGroupKindDefInfo.Invoke(__instance, new object[] { }), parms, ensureCanGenerateAtLeastOnePawn: true), warnOnZeroResults: false).ToList();
+            foreach (Pawn item in list)
+            {
+                IntVec3 loc = CellFinderExtended.RandomClosewalkCellNear(parms.spawnCenter, map, item.kindDef, 5);
+                GenSpawn.Spawn(item, loc, map);
+            }
+            __result = list;
+            return false;
+        }
+    }
 
     // Patching these two methods saves a LOT of other patches, even though this has nothing to do with temperature
     [HarmonyPatch(typeof(TileTemperaturesComp), "SeasonAcceptableFor", new Type[] { typeof(int), typeof(ThingDef) })]
@@ -297,10 +460,10 @@ namespace TerrainMovement
         }
     }
 
+
     //TODO: SiteGenStepUtility replacements
     //TODO: RCellFinder.TryFindRandomSpotJustOutsideColony, .TryFindRandomPawnEntryCell
     //TODO: JobGiver_PrepareCaravan_GatherDownedPawns.FindRandomDropCell
-    //TODO: CaravanEnterMapUtility.GetEnterCell
     //TODO: MultipleCaravansCellFinder.FindStartingCellsFor2Groups
     //TODO: JobDriver_FollowClose.MakeNewToils -> RandomClosewalkCellNear
 
