@@ -328,6 +328,7 @@ namespace TerrainMovement
 						if (impassible)
 						{
 							// Skip this cell for pathing calculations
+							calcGrid[num14].status = statusClosedValue;
 							continue;
 						}
 

@@ -127,6 +127,22 @@ namespace TerrainMovement
             return false;
         }
 
+        public static bool HasTerrainChecks(this PawnKindDef kind)
+        {
+            if (kind.race.modExtensions != null)
+            {
+                foreach (DefModExtension ext in kind.race.modExtensions)
+                {
+                    TerrainMovementPawnRestrictions restrictions = LoadTerrainMovementPawnRestrictionsExtension(ext);
+                    if (restrictions != null)
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         public static bool UnreachableTerrainCheck(this PawnKindDef kind, TerrainDef terrain)
         {
             return UnreachableTerrainCheck(kind.race.modExtensions, terrain);

@@ -305,6 +305,7 @@
   <ItemGroup>
     <Compile Include="CellRelated.cs" />
     <Compile Include="Incidents.cs" />
+    <Compile Include="Jobs.cs" />
     <Compile Include="PathGrid.cs" />
     <Compile Include="Extensions.cs" />
     <Compile Include="Map.cs" />

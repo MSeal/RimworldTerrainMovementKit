@@ -10,6 +10,28 @@ namespace TerrainMovement
 {
     public static class ReflectionExtension
     {
+        // Taken from https://github.com/pardeike/Zombieland/blob/d1f558ca159cc56566e505b56532e40ec0f5ec89/Source/SafeReflections.cs, thank you @brrainz for the pointers in your discord!
+        public static FieldInfo Field(this Type type, string fieldName)
+        {
+            var field = AccessTools.Field(type, fieldName);
+            if (field == null) throw new Exception("Cannot find field '" + fieldName + "' in type " + type.FullName);
+            return field;
+        }
+
+        public static Type InnerTypeStartingWith(this Type type, string prefix)
+        {
+            var innerType = AccessTools.FirstInner(type, subType => subType.Name.StartsWith(prefix));
+            if (innerType == null) throw new Exception("Cannot find inner type starting with '" + prefix + "' in type " + type.FullName);
+            return innerType;
+        }
+
+        public static MethodInfo MethodMatching(this Type type, Func<MethodInfo[], MethodInfo> predicate)
+        {
+            var method = predicate(type.GetMethods(AccessTools.all));
+            if (method == null) throw new Exception("Cannot find method matching " + predicate + " in type " + type.FullName);
+            return method;
+        }
+
         // Taken from http://kennethxu.blogspot.com/2009/05/strong-typed-high-performance.html -- Thank you for that how-to!
         public static DynamicMethod CreateNonVirtualDynamicMethod(this MethodInfo method)
         {
@@ -64,7 +86,7 @@ namespace TerrainMovement
             return runningChanges.AsEnumerable();
         }
 
-        public static List<CodeInstruction> PreCallReplaceFunctionArgument(List<CodeInstruction> opsUpToCall, MethodInfo newMethod, CodeInstruction addedArgument, int distanceFromRight)
+        public static List<CodeInstruction> PreCallReplaceFunctionArgument(List<CodeInstruction> opsUpToCall, MethodInfo newMethod, IEnumerable<CodeInstruction> addedArguments, int distanceFromRight)
         {
             List<CodeInstruction> rightMostArgs = new List<CodeInstruction>();
             // Pop the last few parameters
@@ -72,8 +94,11 @@ namespace TerrainMovement
             {
                 rightMostArgs.Insert(0, opsUpToCall.Pop());
             }
-            // Add the new parameter
-            opsUpToCall.Add(addedArgument);
+            // Add the new parameter arguments
+            foreach (CodeInstruction arg in addedArguments)
+            {
+                opsUpToCall.Add(arg);
+            }
             // Add the last few parameters back
             opsUpToCall.AddRange(rightMostArgs);
             // Add call to new method
@@ -85,7 +110,18 @@ namespace TerrainMovement
         {
             return ReplaceFunction(
                 instructions,
-                (opsUpToCall, _callInstruction) => PreCallReplaceFunctionArgument(opsUpToCall, newMethod, addedArgument, distanceFromRight),
+                (opsUpToCall, _callInstruction) => PreCallReplaceFunctionArgument(opsUpToCall, newMethod, new List<CodeInstruction>() { addedArgument }, distanceFromRight),
+                patchCallName,
+                originalFuncName,
+                null,
+                repeat);
+        }
+
+        public static IEnumerable<CodeInstruction> ReplaceFunctionArgument(this IEnumerable<CodeInstruction> instructions, MethodInfo newMethod, IEnumerable<CodeInstruction> addedArguments, int distanceFromRight, string patchCallName, string originalFuncName, bool repeat = true)
+        {
+            return ReplaceFunction(
+                instructions,
+                (opsUpToCall, _callInstruction) => PreCallReplaceFunctionArgument(opsUpToCall, newMethod, addedArguments, distanceFromRight),
                 patchCallName,
                 originalFuncName,
                 null,

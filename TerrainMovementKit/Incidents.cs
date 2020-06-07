@@ -335,20 +335,15 @@ namespace TerrainMovement
                 if (i == injectIndex)
                 {
                     // Add groupParms
-                    //Log.Warning(String.Format("INJECTING {0}, {1} -> {2}", OpCodes.Ldarg_2, null, null));
                     yield return new CodeInstruction(OpCodes.Ldarg_2);
                     // Add pawnOpt
-                    //Log.Warning(String.Format("INJECTING {0}, {1} -> {2}", pawnOptOp.opcode, pawnOptOp.operand, null));
                     yield return pawnOptOp;
                     // Call MapAllowed
-                    //Log.Warning(String.Format("INJECTING {0}, {1} -> {2}", OpCodes.Call, TryFindRandomPawnEntryCellInfo, TryFindRandomPawnEntryCellInfo?.Name));
                     yield return new CodeInstruction(OpCodes.Call, TryFindRandomPawnEntryCellInfo);
                     // Exit conditional if false
-                    //Log.Warning(String.Format("INJECTING {0}, {1} -> {2}", OpCodes.Brfalse_S, endLoopLoc, null));
                     yield return new CodeInstruction(OpCodes.Brfalse_S, endLoopLoc);
                     costInjectFound = true;
                 }
-                //Log.Message(String.Format("Yielding {0}, {1} -> {2}", inst.opcode, inst.operand, (inst.operand as MethodInfo)?.Name));
                 yield return inst;
             }
             
@@ -427,48 +422,4 @@ namespace TerrainMovement
             return false;
         }
     }
-
-    // Patching these two methods saves a LOT of other patches, even though this has nothing to do with temperature
-    [HarmonyPatch(typeof(TileTemperaturesComp), "SeasonAcceptableFor", new Type[] { typeof(int), typeof(ThingDef) })]
-    public class TileTemperaturesComp_SeasonAcceptableFor_TerrainAwareHack
-    {
-        static void Postfix(ref bool __result, int tile, ThingDef animalRace)
-        {
-            if (__result && typeof(Pawn).IsAssignableFrom(animalRace.thingClass)) {
-                Map map = Current.Game.FindMap(tile);
-                if (map != null)
-                {
-                    __result = map.ThingCanEnter(animalRace);
-                }
-            }
-        }
-    }
-
-    [HarmonyPatch(typeof(TileTemperaturesComp), "OutdoorTemperatureAcceptableFor", new Type[] { typeof(int), typeof(ThingDef) })]
-    public class TileTemperaturesComp_OutdoorTemperatureAcceptableFor_TerrainAwareHack
-    {
-        static void Postfix(ref bool __result, int tile, ThingDef animalRace)
-        {
-            if (__result && typeof(Pawn).IsAssignableFrom(animalRace.thingClass))
-            {
-                Map map = Current.Game.FindMap(tile);
-                if (map != null)
-                {
-                    __result = map.ThingCanEnter(animalRace);
-                }
-            }
-        }
-    }
-
-
-    //TODO: SiteGenStepUtility replacements
-    //TODO: RCellFinder.TryFindRandomSpotJustOutsideColony, .TryFindRandomPawnEntryCell
-    //TODO: JobGiver_PrepareCaravan_GatherDownedPawns.FindRandomDropCell
-    //TODO: MultipleCaravansCellFinder.FindStartingCellsFor2Groups
-    //TODO: JobDriver_FollowClose.MakeNewToils -> RandomClosewalkCellNear
-
-    // Pawns mods
-    //TODO: PawnsArrivalModeWorker_EdgeWalkIn.Arrive, .TryResolveRaidSpawnCenter
-    //TODO: PawnsArrivalModeWorker_EdgeWalkInGroups.Arrive, .TryResolveRaidSpawnCenter
-    //TODO: Toils_LayDown.LayDown -> RandomClosewalkCellNear (Postfix)
 }
