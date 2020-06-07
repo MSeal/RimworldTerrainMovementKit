@@ -303,8 +303,17 @@
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <ItemGroup>
+    <Compile Include="CellRelated.cs" />
+    <Compile Include="Incidents.cs" />
+    <Compile Include="Jobs.cs" />
+    <Compile Include="PathGrid.cs" />
+    <Compile Include="Extensions.cs" />
+    <Compile Include="Map.cs" />
     <Compile Include="PathFinder.cs" />
+    <Compile Include="Pawn.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="TerrainKitPatches.cs" />
+    <Compile Include="Reflection.cs" />
+    <Compile Include="TerrainDef.cs" />
+    <Compile Include="Mod.cs" />
   </ItemGroup>
 </Project>
