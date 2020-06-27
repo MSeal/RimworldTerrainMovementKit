@@ -24,6 +24,7 @@ namespace TerrainMovement
     [HarmonyPatch(typeof(Pawn_PathFollower), "CostToMoveIntoCell", new Type[] { typeof(Pawn), typeof(IntVec3) })]
     public class TerrainAwareFollowerPatch
     {
+        // TODO: Transpiler change
         static bool Prefix(ref int __result, Pawn pawn, IntVec3 c)
         {
             int num;
@@ -127,6 +128,22 @@ namespace TerrainMovement
             return false;
         }
 
+        public static bool AllowsBasicMovement(this PawnKindDef kind)
+        {
+            if (kind.race.modExtensions != null)
+            {
+                foreach (DefModExtension ext in kind.race.modExtensions)
+                {
+                    TerrainMovementPawnRestrictions restrictions = LoadTerrainMovementPawnRestrictionsExtension(ext);
+                    if (restrictions != null && !restrictions.defaultMovementAllowed)
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
         public static bool HasTerrainChecks(this PawnKindDef kind)
         {
             if (kind.race.modExtensions != null)
@@ -154,8 +171,13 @@ namespace TerrainMovement
         public static (StatDef moveStat, StatDef costStat) BestTerrainMovementStatDefs(this Pawn pawn, TerrainDef terrain)
         {
             (StatDef moveStat, StatDef costStat) bestStats = (null, null);
+            if (pawn.kindDef.AllowsBasicMovement())
+            {
+                // Terrain pathCost has no stat, so use MoveSpeed as a substitute
+                bestStats = (StatDefOf.MoveSpeed, StatDefOf.MoveSpeed);
+            }
             float curSpeed = -1;
-            foreach (var terrainStats in terrain.TerrainMovementStatDefs())
+            foreach (var terrainStats in terrain.TerrainMovementStatDefs(pawn.kindDef.AllowsBasicMovement(), pawn.jobs.curJob.locomotionUrgency))
             {
                 // Lazily calculate curSpeed for performance reasons
                 if (bestStats.moveStat == null)
@@ -183,6 +205,15 @@ namespace TerrainMovement
 
         public static StatDef TerrainMoveStat(this Pawn pawn, TerrainDef terrain)
         {
+            var bestMovement = pawn.BestTerrainMovementStatDefs(terrain);
+            if (bestMovement.moveStat == null)
+            {
+                Log.ErrorOnce("No valid movement stat available for '" + pawn.kindDef.defName + "' on '" + terrain.defName + "'. " +
+                    "Please assign at least movement stat to this terrain for this pawnKind. " +
+                    "Note that 'disallowedLocomotionUrgencies' in a TerrainMovementStatDef extension can limit the number of valid movement stat. s" +
+                    "Defaulting the MoveSpeed", pawn.kindDef.GetHashCode() + terrain.GetHashCode());
+                return StatDefOf.MoveSpeed;
+            }
             return pawn.BestTerrainMovementStatDefs(terrain).moveStat;
         }
 
