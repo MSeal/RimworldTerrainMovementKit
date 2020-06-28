@@ -57,4 +57,16 @@ namespace TerrainMovement
                 "JobDriver_FollowClose.MakeNewToils");
         }
     }
+
+    [HarmonyPatch(typeof(JobDriver_Wait), "DecorateWaitToil")]
+    public class JobDriver_Wait_DecorateWaitToil_TerrainAware_Patch
+    {
+        public static bool Prefix(ref JobDriver_Wait __instance, Toil wait)
+        {
+            // Default to Amble since it instead defaults to Job
+            // This causes disallowedLocomotionUrgencies to be difficult to use otherwise for non-action pawns
+            __instance.job.locomotionUrgency = LocomotionUrgency.Amble;
+            return true;
+        }
+    }
 }

@@ -1,4 +1,5 @@
-﻿using System;
+﻿using RimWorld;
+using System;
 using System.Collections.Generic;
 using Verse;
 using Verse.AI;
@@ -12,6 +13,19 @@ namespace TerrainMovement
         public String stayOnTerrainTag = null;
         public bool defaultMovementAllowed = true;
     }
+    public class TerrainMovementPawnKindGraphics : DefModExtension
+    {
+        // Used to indicate custom terrain for a given movement type
+        public String pawnSpeedStat; // Required
+        public GraphicData bodyGraphicData;
+        public GraphicData femaleGraphicData = null;
+
+        public bool StatAffectedGraphic(StatDef moveStat)
+        {
+            return pawnSpeedStat.Trim().ToLower() == moveStat.defName.ToLower();
+        }
+    }
+
     public class TerrainMovementStatDef : DefModExtension
     {
         public String terrainPathCostStat = "pathCost";
@@ -29,6 +43,11 @@ namespace TerrainMovement
                 }
             }
             return false;
+        }
+
+        public bool UrgencyAllowed(LocomotionUrgency urgency)
+        {
+            return !UrgencyDisallowed(urgency);
         }
     }
     public class TerrainMovementTerrainRestrictions : DefModExtension

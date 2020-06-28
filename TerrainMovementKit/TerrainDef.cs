@@ -9,6 +9,8 @@ namespace TerrainMovement
 {
     public static class TerrainDefExtensions
     {
+        public static List<TerrainMovementStatDef> AllTerrainMovementStats = null;
+
         // Provides an opportunity for other mods to manipulate terrain movement stats based on their mod extensions
         public static TerrainMovementTerrainRestrictions LoadTerrainMovementTerrainRestrictionsExtension(this TerrainDef terrain, DefModExtension ext)
         {
@@ -55,7 +57,54 @@ namespace TerrainMovement
             return null;
         }
 
-        public static IEnumerable<(StatDef moveStat, StatDef costStat)> TerrainMovementStatDefs(this TerrainDef terrain, bool defaultMovementAllowed = true, LocomotionUrgency? urgency = null)
+        public static (StatDef moveStat, StatDef costStat) TerrainMovementStatDefPair(this TerrainDef terrain, TerrainMovementStatDef moveStatDef, bool defaultMovementAllowed = true, LocomotionUrgency urgency = LocomotionUrgency.None)
+        {
+            HashSet<StatDef> disallowedPathCostsStats = terrain.TerrainMovementDisallowedPathCostStat();
+            if (moveStatDef != null && moveStatDef.UrgencyAllowed(urgency))
+            {
+                StatDef newCostStat;
+                // If there's no actual StatDef for pathCost, so map it to null
+                if (moveStatDef.pawnSpeedStat == null || moveStatDef.pawnSpeedStat == "pathCost")
+                {
+                    if (defaultMovementAllowed)
+                    {
+                        newCostStat = StatDefOf.MoveSpeed;
+                    }
+                    else
+                    {
+                        newCostStat = null;
+                    }
+                }
+                else
+                {
+                    newCostStat = StatDef.Named(moveStatDef.terrainPathCostStat);
+                }
+                // Opt out if the terrain disallows this costStat
+                if (!disallowedPathCostsStats.Contains(newCostStat))
+                {
+                    StatDef newMoveStat;
+                    if (moveStatDef.pawnSpeedStat == null)
+                    {
+                        if (defaultMovementAllowed)
+                        {
+                            newMoveStat = StatDefOf.MoveSpeed;
+                        }
+                        else
+                        {
+                            newMoveStat = null;
+                        }
+                    }
+                    else
+                    {
+                        newMoveStat = StatDef.Named(moveStatDef.pawnSpeedStat);
+                    }
+                    return (newMoveStat, newCostStat);
+                }
+            }
+            return (null, null);
+        }
+
+        public static IEnumerable<(StatDef moveStat, StatDef costStat)> AnyTerrainMovementStatDefs(this TerrainDef terrain, bool defaultMovementAllowed = true, LocomotionUrgency urgency = LocomotionUrgency.None)
         {
             HashSet<StatDef> disallowedPathCostsStats = terrain.TerrainMovementDisallowedPathCostStat();
             // Check for if default movement is allowed or not
@@ -63,58 +112,41 @@ namespace TerrainMovement
             {
                 yield return (StatDefOf.MoveSpeed, StatDefOf.MoveSpeed);
             }
+
+            // Memoize statdef terrain modifications
+            if (AllTerrainMovementStats == null)
+            {
+                AllTerrainMovementStats = new List<TerrainMovementStatDef>();
+                foreach (StatDef stat in DefDatabase<StatDef>.AllDefs)
+                {
+                    TerrainMovementStatDef statExt = stat.GetModExtension<TerrainMovementStatDef>();
+                    if (statExt != null) {
+                        AllTerrainMovementStats.Add(statExt);
+                    }
+                }
+            }
+
+            foreach (TerrainMovementStatDef moveStatDef in AllTerrainMovementStats)
+            {
+                yield return terrain.TerrainMovementStatDefPair(moveStatDef, defaultMovementAllowed, urgency);
+            }
+        }
+
+        public static IEnumerable<(StatDef moveStat, StatDef costStat)> TerrainMovementStatDefs(this TerrainDef terrain, bool defaultMovementAllowed = true, LocomotionUrgency urgency = LocomotionUrgency.None)
+        {
+            foreach (var pair in terrain.AnyTerrainMovementStatDefs(defaultMovementAllowed, urgency))
+            {
+                yield return pair;
+            }
             if (terrain.modExtensions != null)
             {
                 foreach (DefModExtension ext in terrain.modExtensions)
                 {
                     TerrainMovementStatDef moveStatDef = terrain.LoadTerrainMovementStatDefExtension(ext);
-                    if (moveStatDef != null)
+                    var pair = terrain.TerrainMovementStatDefPair(moveStatDef, defaultMovementAllowed, urgency);
+                    if (pair.moveStat != null || pair.costStat != null)
                     {
-                        if (urgency is LocomotionUrgency realUrgency)
-                        {
-                            if (moveStatDef.UrgencyDisallowed(realUrgency))
-                            {
-                                continue;
-                            }
-                        }
-                        StatDef newCostStat;
-                        // There's no actual StatDef for pathCost, so map it to null
-                        if (moveStatDef.pawnSpeedStat == null || moveStatDef.pawnSpeedStat == "pathCost")
-                        {
-                            if (defaultMovementAllowed)
-                            {
-                                newCostStat = StatDefOf.MoveSpeed;
-                            }
-                            else
-                            {
-                                newCostStat = null;
-                            }
-                        }
-                        else
-                        {
-                            newCostStat = StatDef.Named(moveStatDef.terrainPathCostStat);
-                        }
-                        // Opt out if the terrain disallows this costStat
-                        if (!disallowedPathCostsStats.Contains(newCostStat))
-                        {
-                            StatDef newMoveStat;
-                            if (moveStatDef.pawnSpeedStat == null)
-                            {
-                                if (defaultMovementAllowed)
-                                {
-                                    newMoveStat = StatDefOf.MoveSpeed;
-                                }
-                                else
-                                {
-                                    newMoveStat = null;
-                                }
-                            }
-                            else
-                            {
-                                newMoveStat = StatDef.Named(moveStatDef.pawnSpeedStat);
-                            }
-                            yield return (newMoveStat, newCostStat);
-                        }
+                        yield return pair;
                     }
                 }
             }

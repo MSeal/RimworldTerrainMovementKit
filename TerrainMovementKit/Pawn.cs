@@ -168,6 +168,41 @@ namespace TerrainMovement
 
     public static class PawnExtensions
     {
+        // TODO: Use method caller to PawnRenderer.CurRotDrawMode instead
+        public static RotDrawMode CurRotDrawMode(this Pawn pawn)
+        {
+            if (pawn.Dead && pawn.Corpse != null)
+            {
+                return pawn.Corpse.CurRotDrawMode;
+            }
+            return RotDrawMode.Fresh;
+        }
+
+        public static TerrainMovementPawnKindGraphics LoadTerrainMovementPawnKindGraphicsExtension(DefModExtension ext)
+        {
+            if (ext is TerrainMovementPawnKindGraphics)
+            {
+                return ext as TerrainMovementPawnKindGraphics;
+            }
+            return null;
+        }
+
+        public static TerrainMovementPawnKindGraphics LoadTerrainMovementPawnKindGraphicsExtension(this Pawn pawn, StatDef moveStat)
+        {
+            if (pawn.ageTracker.CurLifeStage.modExtensions != null)
+            {
+                foreach (DefModExtension ext in pawn.ageTracker.CurLifeStage.modExtensions)
+                {
+                    TerrainMovementPawnKindGraphics graphicsExt = LoadTerrainMovementPawnKindGraphicsExtension(ext);
+                    if (graphicsExt != null && graphicsExt.StatAffectedGraphic(moveStat))
+                    {
+                        return graphicsExt;
+                    }
+                }
+            }
+            return null;
+        }
+
         public static (StatDef moveStat, StatDef costStat) BestTerrainMovementStatDefs(this Pawn pawn, TerrainDef terrain)
         {
             (StatDef moveStat, StatDef costStat) bestStats = (null, null);
@@ -177,7 +212,10 @@ namespace TerrainMovement
                 bestStats = (StatDefOf.MoveSpeed, StatDefOf.MoveSpeed);
             }
             float curSpeed = -1;
-            foreach (var terrainStats in terrain.TerrainMovementStatDefs(pawn.kindDef.AllowsBasicMovement(), pawn.jobs.curJob.locomotionUrgency))
+            var curJob = pawn.jobs.curJob;
+            LocomotionUrgency urgency = (curJob == null) ? LocomotionUrgency.None : curJob.locomotionUrgency;
+            Log.Message("CurJob: " + curJob?.def?.defName.ToStringSafe());
+            foreach (var terrainStats in terrain.TerrainMovementStatDefs(pawn.kindDef.AllowsBasicMovement(), urgency))
             {
                 // Lazily calculate curSpeed for performance reasons
                 if (bestStats.moveStat == null)

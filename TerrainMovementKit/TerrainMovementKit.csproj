@@ -304,6 +304,7 @@
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <ItemGroup>
     <Compile Include="CellRelated.cs" />
+    <Compile Include="Graphic.cs" />
     <Compile Include="Incidents.cs" />
     <Compile Include="Jobs.cs" />
     <Compile Include="PathGrid.cs" />

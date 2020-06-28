@@ -42,7 +42,7 @@ namespace TerrainMovement
         }
     }
 
-    // These pathces are used by Map primarily
+    // These patches are used by Map primarily
     [HarmonyPatch(typeof(Reachability), "CanReach", new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(PathEndMode), typeof(TraverseParms) })]
     public class CanReachMoveCheck
     {
