@@ -214,7 +214,6 @@ namespace TerrainMovement
             float curSpeed = -1;
             var curJob = pawn.jobs.curJob;
             LocomotionUrgency urgency = (curJob == null) ? LocomotionUrgency.None : curJob.locomotionUrgency;
-            Log.Message("CurJob: " + curJob?.def?.defName.ToStringSafe());
             foreach (var terrainStats in terrain.TerrainMovementStatDefs(pawn.kindDef.AllowsBasicMovement(), urgency))
             {
                 // Lazily calculate curSpeed for performance reasons
@@ -241,6 +240,25 @@ namespace TerrainMovement
             return bestStats;
         }
 
+        public static StatDef BestTerrainMoveStat(this Pawn pawn)
+        {
+            if (pawn == null || pawn.Position == IntVec3.Invalid || pawn.Map == null || pawn.Map.terrainGrid == null)
+            {
+                return null;
+            }
+            TerrainDef terrain = pawn.Map.terrainGrid.TerrainAt(pawn.Position);
+            if (terrain == null)
+            {
+                return null;
+            }
+            var bestStats = pawn.BestTerrainMovementStatDefs(terrain);
+            if (bestStats.moveStat == null)
+            {
+                return null;
+            }
+            return bestStats.moveStat;
+        }
+
         public static StatDef TerrainMoveStat(this Pawn pawn, TerrainDef terrain)
         {
             var bestMovement = pawn.BestTerrainMovementStatDefs(terrain);
@@ -252,7 +270,7 @@ namespace TerrainMovement
                     "Defaulting the MoveSpeed", pawn.kindDef.GetHashCode() + terrain.GetHashCode());
                 return StatDefOf.MoveSpeed;
             }
-            return pawn.BestTerrainMovementStatDefs(terrain).moveStat;
+            return bestMovement.moveStat;
         }
 
         public static int TerrainMoveCost(this Pawn pawn, TerrainDef terrain)

@@ -27,8 +27,12 @@ namespace TerrainMovement
         static bool Prefix(Pawn ___pawn, ref bool __result, ref PawnGraphicSet __instance, ref int ___cachedMatsBodyBaseHash)
         {
             Pawn pawn = ___pawn;
-            var bestStats = pawn.BestTerrainMovementStatDefs(pawn.Map.terrainGrid.TerrainAt(pawn.Position));
-            TerrainMovementPawnKindGraphics graphicsExt = pawn.LoadTerrainMovementPawnKindGraphicsExtension(bestStats.moveStat);
+            StatDef moveStat = pawn.BestTerrainMoveStat();
+            if (moveStat == null)
+            {
+                return true;
+            }
+            TerrainMovementPawnKindGraphics graphicsExt = pawn.LoadTerrainMovementPawnKindGraphicsExtension(moveStat);
             __result = __instance.CalculateGraphicsHash(graphicsExt, pawn.Rotation, pawn.CurRotDrawMode()) == ___cachedMatsBodyBaseHash;
             return false;
         }
@@ -40,28 +44,31 @@ namespace TerrainMovement
         static void Postfix(Pawn ___pawn, ref PawnGraphicSet __instance)
         {
             Pawn pawn = ___pawn;
-            var bestStats = pawn.BestTerrainMovementStatDefs(pawn.Map.terrainGrid.TerrainAt(pawn.Position));
-            TerrainMovementPawnKindGraphics graphicsExt = pawn.LoadTerrainMovementPawnKindGraphicsExtension(bestStats.moveStat);
+            StatDef moveStat = pawn.BestTerrainMoveStat();
+            if (moveStat != null)
+            {
+                TerrainMovementPawnKindGraphics graphicsExt = pawn.LoadTerrainMovementPawnKindGraphicsExtension(moveStat);
+                if (graphicsExt != null)
+                {
+                    // Resolve the graphics classes the first time they are reached
+                    if (graphicsExt.bodyGraphicData != null && graphicsExt.bodyGraphicData.graphicClass == null)
+                    {
+                        graphicsExt.bodyGraphicData.graphicClass = typeof(Graphic_Multi);
+                    }
+                    if (graphicsExt.femaleGraphicData != null && graphicsExt.femaleGraphicData.graphicClass == null)
+                    {
+                        graphicsExt.femaleGraphicData.graphicClass = typeof(Graphic_Multi);
+                    }
 
-            if (graphicsExt != null) {
-                // Resolve the graphics classes the first time they are reached
-                if (graphicsExt.bodyGraphicData != null && graphicsExt.bodyGraphicData.graphicClass == null)
-                {
-                    graphicsExt.bodyGraphicData.graphicClass = typeof(Graphic_Multi);
-                }
-                if (graphicsExt.femaleGraphicData != null && graphicsExt.femaleGraphicData.graphicClass == null)
-                {
-                    graphicsExt.femaleGraphicData.graphicClass = typeof(Graphic_Multi);
-                }
-
-                // Pick the graphic geing used
-                if (pawn.gender != Gender.Female || graphicsExt.femaleGraphicData == null)
-                {
-                    __instance.nakedGraphic = graphicsExt.bodyGraphicData.Graphic;
-                }
-                else
-                {
-                    __instance.nakedGraphic = graphicsExt.femaleGraphicData.Graphic;
+                    // Pick the graphic geing used
+                    if (pawn.gender != Gender.Female || graphicsExt.femaleGraphicData == null)
+                    {
+                        __instance.nakedGraphic = graphicsExt.bodyGraphicData.Graphic;
+                    }
+                    else
+                    {
+                        __instance.nakedGraphic = graphicsExt.femaleGraphicData.Graphic;
+                    }
                 }
             }
         }
@@ -74,11 +81,11 @@ namespace TerrainMovement
         static bool Prefix(ref List<Material> __result, Pawn ___pawn, ref PawnGraphicSet __instance, ref int ___cachedMatsBodyBaseHash, ref List<Material> ___cachedMatsBodyBase, ref List<ApparelGraphicRecord> ___apparelGraphics, Rot4 facing, RotDrawMode bodyCondition)
         {
             Pawn pawn = ___pawn;
-            var bestStats = pawn.BestTerrainMovementStatDefs(pawn.Map.terrainGrid.TerrainAt(pawn.Position));
-            TerrainMovementPawnKindGraphics graphicsExt = pawn.LoadTerrainMovementPawnKindGraphicsExtension(bestStats.moveStat);
+            StatDef moveStat = pawn.BestTerrainMoveStat();
             // Only support RotDrawMode.Fresh renderings for now
-            if (bodyCondition == RotDrawMode.Fresh)
+            if (moveStat != null && bodyCondition == RotDrawMode.Fresh)
             {
+                TerrainMovementPawnKindGraphics graphicsExt = pawn.LoadTerrainMovementPawnKindGraphicsExtension(moveStat);
                 // Rerun a subset of the logic from MatsBodyBaseAt
                 int num = __instance.CalculateGraphicsHash(graphicsExt, pawn.Rotation, pawn.CurRotDrawMode());
                 if (num != ___cachedMatsBodyBaseHash)
