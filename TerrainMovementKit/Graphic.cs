@@ -4,6 +4,9 @@ using RimWorld;
 using Verse;
 using HarmonyLib;
 using UnityEngine;
+using System.Linq;
+using System.Reflection.Emit;
+using System.Reflection;
 
 namespace TerrainMovement
 {
@@ -74,37 +77,85 @@ namespace TerrainMovement
         }
     }
 
-    // TODO: Transpile the num calculation
-    [HarmonyPatch(typeof(PawnGraphicSet), "MatsBodyBaseAt", new Type[] { typeof(Rot4), typeof(RotDrawMode) })]
-    public class TerrainAwarePawnGraphicSetMovementTypeCheck
+    [HarmonyPatch(typeof(PawnGraphicSet), nameof(PawnGraphicSet.MatsBodyBaseAt))]
+    public static class MatsBodyBaseAt
     {
-        static bool Prefix(ref List<Material> __result, Pawn ___pawn, ref PawnGraphicSet __instance, ref int ___cachedMatsBodyBaseHash, ref List<Material> ___cachedMatsBodyBase, ref List<ApparelGraphicRecord> ___apparelGraphics, Rot4 facing, RotDrawMode bodyCondition)
+        static readonly MethodInfo CalculateGraphicsHashInfo = AccessTools.Method(typeof(PawnGraphicSetExtension), nameof(PawnGraphicSetExtension.CalculateGraphicsHash));
+        static readonly MethodInfo BestTerrainMoveStatInfo = AccessTools.Method(typeof(PawnExtensions), nameof(PawnExtensions.BestTerrainMoveStat));
+        static readonly MethodInfo LoadTerrainMovementPawnKindGraphicsExtensionInfo = AccessTools.Method(typeof(PawnExtensions), nameof(PawnExtensions.LoadTerrainMovementPawnKindGraphicsExtension));
+        static readonly MethodInfo GetRotationInfo = AccessTools.Method(typeof(Pawn), "get_Rotation");
+        static readonly MethodInfo CurRotDrawModeInfo = AccessTools.Method(typeof(PawnExtensions), nameof(PawnExtensions.CurRotDrawMode));
+        static readonly FieldInfo PawnGraphicSetPawnField = AccessTools.Field(typeof(PawnGraphicSet), nameof(PawnGraphicSet.pawn));
+
+        /*
+         * Replaces
+         * 
+         * `int num = facing.AsInt + 1000 * (int)bodyCondition;`
+         * 
+         * with
+         * 
+         * ```
+         * int num = this.CalculateGraphicsHash(
+         *   pawn.LoadTerrainMovementPawnKindGraphicsExtension(pawn.BestTerrainMoveStat()),
+         *   pawn.Rotation,
+         *   pawn.CurRotDrawMode());
+         * ```
+         */
+        public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
-            Pawn pawn = ___pawn;
-            StatDef moveStat = pawn.BestTerrainMoveStat();
-            // Only support RotDrawMode.Fresh renderings for now
-            if (moveStat != null && bodyCondition == RotDrawMode.Fresh)
+            var instructionList = instructions.ToList();
+            bool found = false;
+            foreach (var instruction in instructionList)
             {
-                TerrainMovementPawnKindGraphics graphicsExt = pawn.LoadTerrainMovementPawnKindGraphicsExtension(moveStat);
-                // Rerun a subset of the logic from MatsBodyBaseAt
-                int num = __instance.CalculateGraphicsHash(graphicsExt, pawn.Rotation, pawn.CurRotDrawMode());
-                if (num != ___cachedMatsBodyBaseHash)
+                if (!found)
                 {
-                    ___cachedMatsBodyBase.Clear();
-                    ___cachedMatsBodyBaseHash = num;
-                    ___cachedMatsBodyBase.Add(__instance.nakedGraphic.MatAt(facing));
-                    for (int i = 0; i < ___apparelGraphics.Count; i++)
+                    // Find the num = assignment
+                    if (instruction.opcode == OpCodes.Stloc_0)
                     {
-                        if (___apparelGraphics[i].sourceApparel.def.apparel.LastLayer != ApparelLayerDefOf.Shell && ___apparelGraphics[i].sourceApparel.def.apparel.LastLayer != ApparelLayerDefOf.Overhead)
-                        {
-                            ___cachedMatsBodyBase.Add(___apparelGraphics[i].graphic.MatAt(facing));
-                        }
+                        found = true;
+
+                        // this arg for CalculateGraphicsHash
+                        yield return new CodeInstruction(OpCodes.Ldarg_0); // PawnGraphicsSet
+
+                        // Push MovementGraphics Extension onto the stack
+                        yield return new CodeInstruction(OpCodes.Ldarg_0); // PawnGraphicsSet
+                        yield return new CodeInstruction(OpCodes.Ldfld, PawnGraphicSetPawnField); // this.pawn
+                        // Push moveStat onto the stack
+                        yield return new CodeInstruction(OpCodes.Ldarg_0); // PawnGraphicsSet
+                        yield return new CodeInstruction(OpCodes.Ldfld, PawnGraphicSetPawnField); // this.pawn
+                        yield return new CodeInstruction(OpCodes.Callvirt, BestTerrainMoveStatInfo); // pawn.BestTerrainMoveStatInfo
+                        // All args on stack for Load call
+                        yield return new CodeInstruction(OpCodes.Callvirt, LoadTerrainMovementPawnKindGraphicsExtensionInfo); // pawn.LoadTerrainMovementPawnKindGraphicsExtension
+
+                        // Push pawn.Rotation onto the stack
+                        yield return new CodeInstruction(OpCodes.Ldarg_0); // PawnGraphicsSet
+                        yield return new CodeInstruction(OpCodes.Ldfld, PawnGraphicSetPawnField); // this.pawn
+                        yield return new CodeInstruction(OpCodes.Callvirt, GetRotationInfo); // pawn.Rotation
+
+                        //  Push pawn.CurRotDrawMode onto the stack
+                        yield return new CodeInstruction(OpCodes.Ldarg_0); // PawnGraphicsSet
+                        yield return new CodeInstruction(OpCodes.Ldfld, PawnGraphicSetPawnField); // this.pawn
+                        yield return new CodeInstruction(OpCodes.Call, CurRotDrawModeInfo); // pawn.CurRotDrawMode
+
+                        // Call our new method
+                        yield return new CodeInstruction(OpCodes.Callvirt, CalculateGraphicsHashInfo);
+                        yield return instruction; // Use original assignment into `num`
                     }
                 }
-                __result = ___cachedMatsBodyBase;
-                return false;
+                else
+                {
+                    yield return instruction;
+                }
             }
-            return true;
+            if (!found)
+            {
+                Log.ErrorOnce("[TerrainKit] Could not patch 'PawnGraphicSet.MatsBodyBaseAt', skipping patch attempt.", CalculateGraphicsHashInfo.GetHashCode());
+                foreach (var instruction in instructionList)
+                {
+                    yield return instruction;
+                }
+            }
         }
+
     }
 }

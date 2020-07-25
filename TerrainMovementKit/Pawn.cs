@@ -178,7 +178,7 @@ namespace TerrainMovement
             return RotDrawMode.Fresh;
         }
 
-        public static TerrainMovementPawnKindGraphics LoadTerrainMovementPawnKindGraphicsExtension(DefModExtension ext)
+        public static TerrainMovementPawnKindGraphics TerrainMovementPawnKindGraphicsExtension(DefModExtension ext)
         {
             if (ext is TerrainMovementPawnKindGraphics)
             {
@@ -189,11 +189,11 @@ namespace TerrainMovement
 
         public static TerrainMovementPawnKindGraphics LoadTerrainMovementPawnKindGraphicsExtension(this Pawn pawn, StatDef moveStat)
         {
-            if (pawn.ageTracker.CurLifeStage.modExtensions != null)
+            if (moveStat != null && pawn.ageTracker.CurLifeStage.modExtensions != null)
             {
                 foreach (DefModExtension ext in pawn.ageTracker.CurLifeStage.modExtensions)
                 {
-                    TerrainMovementPawnKindGraphics graphicsExt = LoadTerrainMovementPawnKindGraphicsExtension(ext);
+                    TerrainMovementPawnKindGraphics graphicsExt = TerrainMovementPawnKindGraphicsExtension(ext);
                     if (graphicsExt != null && graphicsExt.StatAffectedGraphic(moveStat))
                     {
                         return graphicsExt;
