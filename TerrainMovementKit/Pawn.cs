@@ -229,7 +229,7 @@ namespace TerrainMovement
                     }
                     float newSpeed = pawn.GetStatValue(terrainStats.moveStat ?? StatDefOf.MoveSpeed) / terrain.MovementCost(terrainStats.costStat);
                     // Find highest movement statistic for this pawn
-                    if (newSpeed >= curSpeed)
+                    if (newSpeed > 0.0001 && newSpeed >= curSpeed)
                     {
                         curSpeed = newSpeed;
                         bestStats = terrainStats;

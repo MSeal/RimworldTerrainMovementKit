@@ -144,7 +144,7 @@ namespace TerrainMovement
                 {
                     TerrainMovementStatDef moveStatDef = terrain.LoadTerrainMovementStatDefExtension(ext);
                     var pair = terrain.TerrainMovementStatDefPair(moveStatDef, defaultMovementAllowed, urgency);
-                    if (pair.moveStat != null || pair.costStat != null)
+                    if (!(pair.moveStat == null && pair.costStat == null))
                     {
                         yield return pair;
                     }
@@ -162,7 +162,8 @@ namespace TerrainMovement
             {
                 return terrain.pathCost;
             }
-            return (int)Math.Round(terrain.GetStatValueAbstract(costStat), 0);
+            int cost = (int)Math.Round(terrain.GetStatValueAbstract(costStat), 0);
+            return cost <= 0 ? 99999 : cost;
         }
     }
 }
