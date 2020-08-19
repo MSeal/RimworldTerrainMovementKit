@@ -138,14 +138,15 @@ namespace TerrainMovement
     [HarmonyPatch(typeof(WildAnimalSpawner), "SpawnRandomWildAnimalAt", new Type[] { typeof(IntVec3) })]
     public class SpawnRandomWildAnimalAtKindCheck
     {
-        static bool Prefix(IntVec3 loc, Map ___map)
+        static bool Prefix(ref bool __result, IntVec3 loc, Map ___map)
         {
             PawnKindDef pawnKindDef = ___map.Biome.AllWildAnimals.Where(
-                (PawnKindDef a) => ___map.mapTemperature.SeasonAcceptableFor(a.race) && ___map.PawnKindCanEnter(a)
+                (PawnKindDef a) => ___map.mapTemperature.SeasonAcceptableFor(a.race) && ___map.PawnKindCanEnter(a) && !a.UnreachableLocationCheck(___map, loc)
             ).RandomElementByWeight((PawnKindDef def) => ___map.Biome.CommonalityOfAnimal(def) / def.wildGroupSize.Average);
             if (pawnKindDef == null)
             {
                 Log.Error("No spawnable animals right now.");
+                __result = false;
                 return false;
             }
             int randomInRange = pawnKindDef.wildGroupSize.RandomInRange;
@@ -155,7 +156,50 @@ namespace TerrainMovement
                 IntVec3 loc2 = CellFinderExtended.RandomClosewalkCellNear(loc, ___map, pawnKindDef, radius);
                 GenSpawn.Spawn(PawnGenerator.GeneratePawn(pawnKindDef), loc2, ___map);
             }
-            return true;
+            __result = true;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(RCellFinder), "RandomAnimalSpawnCell_MapGen")]
+    public static class RCellFinder_RandomAnimalSpawnCell_MapGen_IgnoreWander_Patch
+    {
+        // The delegated method makes transpiling this a PITA... so we're just going to overwrite it and ignore avoidWander.
+        static bool Prefix(ref IntVec3 __result, Map map)
+        {
+            int numStand = 0;
+            int numRoom = 0;
+            int numTouch = 0;
+            if (!CellFinderLoose.TryGetRandomCellWith(delegate (IntVec3 c)
+            {
+                if (!c.Standable(map))
+                {
+                    numStand++;
+                    return false;
+                }
+                /*if (c.GetTerrain(map).avoidWander)
+                {
+                    return false;
+                }*/
+                Room room = c.GetRoom(map);
+                if (room == null)
+                {
+                    numRoom++;
+                    return false;
+                }
+                if (!room.TouchesMapEdge)
+                {
+                    numTouch++;
+                    return false;
+                }
+                return true;
+            }, map, 1000, out IntVec3 result))
+            {
+                result = CellFinder.RandomCell(map);
+                Log.Warning("RandomAnimalSpawnCell_MapGen failed: numStand=" + numStand + ", numRoom=" + numRoom + ", numTouch=" + numTouch + ". PlayerStartSpot=" + MapGenerator.PlayerStartSpot + ". Returning " + result);
+            }
+            __result = result;
+            return false;
         }
     }
 }

@@ -164,6 +164,11 @@ namespace TerrainMovement
         {
             return UnreachableTerrainCheck(kind.race.modExtensions, terrain);
         }
+
+        public static bool UnreachableLocationCheck(this PawnKindDef kind, Map map, IntVec3 loc)
+        {
+            return UnreachableTerrainCheck(kind.race.modExtensions, map.terrainGrid.TerrainAt(loc));
+        }
     }
 
     public static class PawnExtensions
