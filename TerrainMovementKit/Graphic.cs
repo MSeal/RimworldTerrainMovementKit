@@ -30,6 +30,10 @@ namespace TerrainMovement
         static bool Prefix(Pawn ___pawn, ref bool __result, ref PawnGraphicSet __instance, ref int ___cachedMatsBodyBaseHash)
         {
             Pawn pawn = ___pawn;
+            if (!pawn.HasTerrainMovementPawnKindGraphicsExtension())
+            {
+                return true;
+            }
             StatDef moveStat = pawn.BestTerrainMoveStat();
             if (moveStat == null || moveStat == StatDefOf.MoveSpeed)
             {

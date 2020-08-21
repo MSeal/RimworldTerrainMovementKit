@@ -192,6 +192,22 @@ namespace TerrainMovement
             return null;
         }
 
+        public static bool HasTerrainMovementPawnKindGraphicsExtension(this Pawn pawn)
+        {
+            if (pawn.ageTracker.CurLifeStage.modExtensions != null)
+            {
+                foreach (DefModExtension ext in pawn.ageTracker.CurLifeStage.modExtensions)
+                {
+                    TerrainMovementPawnKindGraphics graphicsExt = TerrainMovementPawnKindGraphicsExtension(ext);
+                    if (graphicsExt != null)
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         public static TerrainMovementPawnKindGraphics LoadTerrainMovementPawnKindGraphicsExtension(this Pawn pawn, StatDef moveStat)
         {
             if (moveStat != null && pawn.ageTracker.CurLifeStage.modExtensions != null)
@@ -208,8 +224,35 @@ namespace TerrainMovement
             return null;
         }
 
+        // Used by CachedBestTerrainMovementStatDefs to track per-tick terrain movements
+        public static int CurrentCacheTick = -1;
+        public static Dictionary<Pawn, Dictionary<TerrainDef, (StatDef, StatDef)>> TickPawnStatCache = null;
+
+        public static Dictionary<TerrainDef, (StatDef, StatDef)> CachedBestTerrainMovementStatDefs(this Pawn pawn)
+        {
+            int ticksGame = Find.TickManager.TicksGame;
+            // Invalidate the entire cache each tick
+            if (CurrentCacheTick == -1 || ticksGame != CurrentCacheTick)
+            {
+                CurrentCacheTick = ticksGame;
+                TickPawnStatCache = new Dictionary<Pawn, Dictionary<TerrainDef, (StatDef, StatDef)>>();
+            }
+            if (!TickPawnStatCache.TryGetValue(pawn, out Dictionary<TerrainDef, (StatDef, StatDef)> terrainStats))
+            {
+                terrainStats = new Dictionary<TerrainDef, (StatDef, StatDef)>();
+                TickPawnStatCache.Add(pawn, terrainStats);
+            }
+            return terrainStats;
+        }
+
         public static (StatDef moveStat, StatDef costStat) BestTerrainMovementStatDefs(this Pawn pawn, TerrainDef terrain)
         {
+            Dictionary<TerrainDef, (StatDef, StatDef)> tickCache = pawn.CachedBestTerrainMovementStatDefs();
+            if (tickCache.TryGetValue(terrain, out (StatDef, StatDef) cachedStats))
+            {
+                return cachedStats;
+            }
+
             (StatDef moveStat, StatDef costStat) bestStats = (null, null);
             if (pawn.kindDef.AllowsBasicMovement())
             {
@@ -242,6 +285,7 @@ namespace TerrainMovement
                 }
             }
 
+            tickCache.Add(terrain, bestStats);
             return bestStats;
         }
 
