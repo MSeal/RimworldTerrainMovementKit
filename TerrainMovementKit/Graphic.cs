@@ -31,7 +31,7 @@ namespace TerrainMovement
         {
             Pawn pawn = ___pawn;
             StatDef moveStat = pawn.BestTerrainMoveStat();
-            if (moveStat == null)
+            if (moveStat == null || moveStat == StatDefOf.MoveSpeed)
             {
                 return true;
             }
@@ -48,7 +48,7 @@ namespace TerrainMovement
         {
             Pawn pawn = ___pawn;
             StatDef moveStat = pawn.BestTerrainMoveStat();
-            if (moveStat != null)
+            if (!(moveStat == null && moveStat == StatDefOf.MoveSpeed))
             {
                 TerrainMovementPawnKindGraphics graphicsExt = pawn.LoadTerrainMovementPawnKindGraphicsExtension(moveStat);
                 if (graphicsExt != null)
@@ -83,8 +83,6 @@ namespace TerrainMovement
         static readonly MethodInfo CalculateGraphicsHashInfo = AccessTools.Method(typeof(PawnGraphicSetExtension), nameof(PawnGraphicSetExtension.CalculateGraphicsHash));
         static readonly MethodInfo BestTerrainMoveStatInfo = AccessTools.Method(typeof(PawnExtensions), nameof(PawnExtensions.BestTerrainMoveStat));
         static readonly MethodInfo LoadTerrainMovementPawnKindGraphicsExtensionInfo = AccessTools.Method(typeof(PawnExtensions), nameof(PawnExtensions.LoadTerrainMovementPawnKindGraphicsExtension));
-        static readonly MethodInfo GetRotationInfo = AccessTools.Method(typeof(Pawn), "get_Rotation");
-        static readonly MethodInfo CurRotDrawModeInfo = AccessTools.Method(typeof(PawnExtensions), nameof(PawnExtensions.CurRotDrawMode));
         static readonly FieldInfo PawnGraphicSetPawnField = AccessTools.Field(typeof(PawnGraphicSet), nameof(PawnGraphicSet.pawn));
 
         /*
@@ -97,8 +95,8 @@ namespace TerrainMovement
          * ```
          * int num = this.CalculateGraphicsHash(
          *   pawn.LoadTerrainMovementPawnKindGraphicsExtension(pawn.BestTerrainMoveStat()),
-         *   pawn.Rotation,
-         *   pawn.CurRotDrawMode());
+         *   facing,
+         *   bodyCondition);
          * ```
          */
         public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
@@ -127,15 +125,11 @@ namespace TerrainMovement
                         // All args on stack for Load call
                         yield return new CodeInstruction(OpCodes.Callvirt, LoadTerrainMovementPawnKindGraphicsExtensionInfo); // pawn.LoadTerrainMovementPawnKindGraphicsExtension
 
-                        // Push pawn.Rotation onto the stack
-                        yield return new CodeInstruction(OpCodes.Ldarg_0); // PawnGraphicsSet
-                        yield return new CodeInstruction(OpCodes.Ldfld, PawnGraphicSetPawnField); // this.pawn
-                        yield return new CodeInstruction(OpCodes.Callvirt, GetRotationInfo); // pawn.Rotation
+                        // Push facing arg onto the stack
+                        yield return new CodeInstruction(OpCodes.Ldarg_1);
 
-                        //  Push pawn.CurRotDrawMode onto the stack
-                        yield return new CodeInstruction(OpCodes.Ldarg_0); // PawnGraphicsSet
-                        yield return new CodeInstruction(OpCodes.Ldfld, PawnGraphicSetPawnField); // this.pawn
-                        yield return new CodeInstruction(OpCodes.Call, CurRotDrawModeInfo); // pawn.CurRotDrawMode
+                        // Push rot arg onto the stack
+                        yield return new CodeInstruction(OpCodes.Ldarg_2);
 
                         // Call our new method
                         yield return new CodeInstruction(OpCodes.Callvirt, CalculateGraphicsHashInfo);
