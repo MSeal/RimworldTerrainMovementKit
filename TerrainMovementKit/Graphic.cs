@@ -48,7 +48,7 @@ namespace TerrainMovement
         {
             Pawn pawn = ___pawn;
             StatDef moveStat = pawn.BestTerrainMoveStat();
-            if (!(moveStat == null && moveStat == StatDefOf.MoveSpeed))
+            if (!(moveStat == null || moveStat == StatDefOf.MoveSpeed))
             {
                 TerrainMovementPawnKindGraphics graphicsExt = pawn.LoadTerrainMovementPawnKindGraphicsExtension(moveStat);
                 if (graphicsExt != null)
