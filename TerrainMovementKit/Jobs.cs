@@ -69,4 +69,20 @@ namespace TerrainMovement
             return true;
         }
     }
+
+    [HarmonyPatch(typeof(ReservationManager), "CanReserve")]
+    public class ReservationManager_Reservation_CanReserve_ReachCheckPatch
+    {
+        public static void Postfix(ref bool __result, Pawn claimant, LocalTargetInfo target)
+        {
+            // This COULD mess up reservations that don't care about reachability .. but there's a lot of methods
+            // that seem to assume you can reach things in how they are coded and some are in delegates that can't
+            // be easily patched. Now that terrain restrictions are more prominent we're using the loosest check
+            // we can do that still enforces some measure of reachability
+            if (__result && !claimant.CanReach(target, PathEndMode.ClosestTouch, Danger.Deadly))
+            {
+                __result = false;
+            }
+        }
+    }
 }
