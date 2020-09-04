@@ -34,10 +34,10 @@ namespace TerrainMovement
             {
                 return true;
             }
-            StatDef moveStat = pawn.BestTerrainMoveStat();
-            if (moveStat == null || moveStat == StatDefOf.MoveSpeed)
+            StatDef moveStat = StatDefOf.MoveSpeed;
+            if (!pawn.Dead)
             {
-                return true;
+                moveStat = pawn.BestTerrainMoveStat();
             }
             TerrainMovementPawnKindGraphics graphicsExt = pawn.LoadTerrainMovementPawnKindGraphicsExtension(moveStat);
             __result = __instance.CalculateGraphicsHash(graphicsExt, pawn.Rotation, pawn.CurRotDrawMode()) == ___cachedMatsBodyBaseHash;
