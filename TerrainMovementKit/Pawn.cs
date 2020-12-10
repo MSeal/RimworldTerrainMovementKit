@@ -260,7 +260,7 @@ namespace TerrainMovement
                 bestStats = (StatDefOf.MoveSpeed, StatDefOf.MoveSpeed);
             }
             float curSpeed = -1;
-            var curJob = pawn.jobs.curJob;
+            var curJob = pawn.jobs?.curJob;
             LocomotionUrgency urgency = (curJob == null) ? LocomotionUrgency.None : curJob.locomotionUrgency;
             foreach (var terrainStats in terrain.TerrainMovementStatDefs(pawn.kindDef.AllowsBasicMovement(), urgency))
             {
