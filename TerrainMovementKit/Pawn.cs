@@ -37,8 +37,8 @@ namespace TerrainMovement
                 num = pawn.TerrainAwareTicksPerMoveDiagonal(c);
             }
             // Replace the calculated cost with one which is pawn / terrain aware
-            //num += pawn.Map.pathGrid.CalculatedCostAt(c, perceivedStatic: false, pawn.Position);
-            num += pawn.Map.pathGrid.TerrainCalculatedCostAt(pawn.Map, pawn, c, false, pawn.Position);
+            //num += pawn.Map.pathing.For(pawn).pathGrid.CalculatedCostAt(c, perceivedStatic: false, pawn.Position);
+            num += pawn.Map.pathing.For(pawn).pathGrid.TerrainCalculatedCostAt(pawn.Map, pawn, c, false, pawn.Position);
             // Rest of function is the same...
             Building edifice = c.GetEdifice(pawn.Map);
             if (edifice != null)

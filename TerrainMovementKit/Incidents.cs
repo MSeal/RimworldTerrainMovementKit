@@ -81,12 +81,19 @@ namespace TerrainMovement
                     Find.WorldPawns.PassToWorld(item);
                     break;
                 }
-                GenSpawn.Spawn(item, result, map);
-                if (!__instance.spawnPawnsOnEdge)
+                if (__instance.useDropPods)
                 {
-                    for (int i = 0; i < 10; i++)
+                    DropPodUtility.DropThingsNear(result, map, Gen.YieldSingle(item));
+                }
+                else
+                {
+                    GenSpawn.Spawn(item, result, map);
+                    if (!__instance.spawnPawnsOnEdge)
                     {
-                        MoteMaker.ThrowAirPuffUp(item.DrawPos, map);
+                        for (int i = 0; i < 10; i++)
+                        {
+                            FleckMaker.ThrowAirPuffUp(item.DrawPos, map);
+                        }
                     }
                 }
                 list.Add(item);
@@ -99,6 +106,7 @@ namespace TerrainMovement
             {
                 for (int j = 0; j < list.Count; j++)
                 {
+                    list[j].health.AddHediff(HediffDefOf.Scaria);
                     list[j].mindState.mentalStateHandler.TryStartMentalState(MentalStateDefOf.ManhunterPermanent);
                 }
             }

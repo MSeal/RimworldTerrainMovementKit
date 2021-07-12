@@ -10,12 +10,12 @@ using HarmonyLib;
 namespace TerrainMovement
 {
 	
-    [HarmonyPatch(typeof(PathFinder), "FindPath", new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode) })]
+    [HarmonyPatch(typeof(PathFinder), "FindPath", new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode), typeof(PathFinderCostTuning) })]
     public class TerrainPathPatch
     {
-        static bool Prefix(ref PawnPath __result, Map ___map, IntVec3 start, LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
+        static bool Prefix(ref PawnPath __result, Map ___map, IntVec3 start, LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode, PathFinderCostTuning tuning)
         {
-            __result = ___map.TerrainAwarePather().FindPath(start, dest, traverseParms, peMode);
+            __result = ___map.TerrainAwarePather().FindPath(start, dest, traverseParms, peMode, tuning);
             return false;
         }
     }
@@ -77,6 +77,10 @@ namespace TerrainMovement
 
 		protected PathGrid pathGrid;
 
+		protected TraverseParms traverseParms;
+
+		protected PathingContext pathingContext;
+
 		protected Building[] edificeGrid;
 
 		protected List<Blueprint>[] blueprintGrid;
@@ -113,13 +117,7 @@ namespace TerrainMovement
 
 		protected const int Cost_DoorToBash = 300;
 
-		protected const int Cost_BlockedWallBase = 70;
-
-		protected const float Cost_BlockedWallExtraPerHitPoint = 0.2f;
-
-		protected const int Cost_BlockedDoor = 50;
-
-		protected const float Cost_BlockedDoorPerHitPoint = 0.2f;
+		protected const int Cost_FenceToBash = 70;
 
 		public const int Cost_OutsideAllowedArea = 600;
 
@@ -160,17 +158,25 @@ namespace TerrainMovement
 			regionCostCalculator = new RegionCostCalculatorWrapper(map);
 		}
 
-		public PawnPath FindPath(IntVec3 start, LocalTargetInfo dest, Pawn pawn, PathEndMode peMode = PathEndMode.OnCell)
+		public PawnPath FindPath(IntVec3 start, LocalTargetInfo dest, Pawn pawn, PathEndMode peMode = PathEndMode.OnCell, PathFinderCostTuning tuning = null)
 		{
-			bool canBash = false;
-			if (pawn != null && pawn.CurJob != null && pawn.CurJob.canBash)
+			bool canBashDoors = false;
+			bool canBashFences = false;
+			if (pawn?.CurJob != null)
 			{
-				canBash = true;
+				if (pawn.CurJob.canBashDoors)
+				{
+					canBashDoors = true;
+				}
+				if (pawn.CurJob.canBashFences)
+				{
+					canBashFences = true;
+				}
 			}
-			return FindPath(start, dest, TraverseParms.For(pawn, Danger.Deadly, TraverseMode.ByPawn, canBash), peMode);
+			return FindPath(start, dest, TraverseParms.For(pawn, Danger.Deadly, TraverseMode.ByPawn, canBashDoors, alwaysUseAvoidGrid: false, canBashFences), peMode, tuning);
 		}
 
-		public PawnPath FindPath(IntVec3 start, LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode = PathEndMode.OnCell)
+		public PawnPath FindPath(IntVec3 start, LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode = PathEndMode.OnCell, PathFinderCostTuning tuning = null)
 		{
 			if (DebugSettings.pathThroughWalls)
 			{
@@ -195,7 +201,7 @@ namespace TerrainMovement
 			}
 			if (traverseParms.mode == TraverseMode.ByPawn)
 			{
-				if (!pawn.CanReach(dest, peMode, Danger.Deadly, traverseParms.canBash, traverseParms.mode))
+				if (!pawn.CanReach(dest, peMode, Danger.Deadly, traverseParms.canBashDoors, traverseParms.canBashFences, traverseParms.mode))
 				{
 					return PawnPath.NotFound;
 				}
@@ -206,31 +212,38 @@ namespace TerrainMovement
 			}
 			PfProfilerBeginSample("FindPath for " + pawn + " from " + start + " to " + dest + (dest.HasThing ? (" at " + dest.Cell) : ""));
 			cellIndices = map.cellIndices;
-			pathGrid = map.pathGrid;
+			pathingContext = map.pathing.For(traverseParms);
+			pathGrid = pathingContext.pathGrid;
+			this.traverseParms = traverseParms;
 			this.edificeGrid = map.edificeGrid.InnerArray;
 			blueprintGrid = map.blueprintGrid.InnerArray;
 			int x = dest.Cell.x;
 			int z = dest.Cell.z;
 			int curIndex = cellIndices.CellToIndex(start);
 			int num = cellIndices.CellToIndex(dest.Cell);
-			ByteGrid byteGrid = pawn?.GetAvoidGrid();
+			ByteGrid byteGrid = traverseParms.alwaysUseAvoidGrid ? map.avoidGrid.Grid : pawn?.GetAvoidGrid();
 			bool flag = traverseParms.mode == TraverseMode.PassAllDestroyableThings || traverseParms.mode == TraverseMode.PassAllDestroyableThingsNotWater;
 			bool flag2 = traverseParms.mode != TraverseMode.NoPassClosedDoorsOrWater && traverseParms.mode != TraverseMode.PassAllDestroyableThingsNotWater;
 			bool flag3 = !flag;
 			CellRect cellRect = CalculateDestinationRect(dest, peMode);
 			bool flag4 = cellRect.Width == 1 && cellRect.Height == 1;
-			int[] array = map.pathGrid.pathGrid;
+			int[] array = pathGrid.pathGrid;
 			TerrainDef[] topGrid = map.terrainGrid.topGrid;
 			EdificeGrid edificeGrid = map.edificeGrid;
 			int num2 = 0;
 			int num3 = 0;
 			Area allowedArea = GetAllowedArea(pawn);
+			BoolGrid lordWalkGrid = GetLordWalkGrid(pawn);
 			bool flag5 = pawn != null && PawnUtility.ShouldCollideWithPawns(pawn);
 			bool flag6 = (!flag && start.GetRegion(map) != null) & flag2;
 			bool flag7 = !flag || !flag3;
 			bool flag8 = false;
 			bool flag9 = pawn?.Drafted ?? false;
 			int num4 = (pawn?.IsColonist ?? false) ? 100000 : 2000;
+			tuning = (tuning ?? PathFinderCostTuning.DefaultTuning);
+			int costBlockedWallBase = tuning.costBlockedWallBase;
+			float costBlockedWallExtraPerHitPoint = tuning.costBlockedWallExtraPerHitPoint;
+			int costOffLordWalkGrid = tuning.costOffLordWalkGrid;
 			int num5 = 0;
 			int num6 = 0;
 			float num7 = DetermineHeuristicStrength(pawn, start, dest);
@@ -244,7 +257,7 @@ namespace TerrainMovement
 			Dictionary<TerrainDef, bool> pawnImpassibleMovementCache = new Dictionary<TerrainDef, bool>();
 			Dictionary<TerrainDef, int> pawnTerrainMovementCache = new Dictionary<TerrainDef, int>();
 			// END CHANGED SECTION
-			CalculateAndAddDisallowedCorners(traverseParms, peMode, cellRect);
+			CalculateAndAddDisallowedCorners(peMode, cellRect);
 			InitStatusesAndPushStartNode(ref curIndex, start);
 			while (true)
 			{
@@ -273,9 +286,9 @@ namespace TerrainMovement
 					PfProfilerEndSample();
 					continue;
 				}
-				IntVec3 c = cellIndices.IndexToCell(curIndex);
-				int x2 = c.x;
-				int z2 = c.z;
+				IntVec3 intVec = cellIndices.IndexToCell(curIndex);
+				int x2 = intVec.x;
+				int z2 = intVec.z;
 				if (flag4)
 				{
 					if (curIndex == num)
@@ -286,7 +299,7 @@ namespace TerrainMovement
 						return result;
 					}
 				}
-				else if (cellRect.Contains(c) && !disallowedCornerIndices.Contains(curIndex))
+				else if (cellRect.Contains(intVec) && !disallowedCornerIndices.Contains(curIndex))
 				{
 					PfProfilerEndSample();
 					PawnPath result2 = FinalizedPath(curIndex, flag8);
@@ -359,13 +372,13 @@ namespace TerrainMovement
 							continue;
 						}
 						flag10 = true;
-						num15 += 70;
+						num15 += costBlockedWallBase;
 						Building building = edificeGrid[num14];
 						if (building == null || !IsDestroyable(building))
 						{
 							continue;
 						}
-						num15 += (int)((float)building.HitPoints * 0.2f);
+						num15 += (int)((float)building.HitPoints * costBlockedWallExtraPerHitPoint);
 					}
 					switch (i)
 					{
@@ -376,7 +389,7 @@ namespace TerrainMovement
 								{
 									continue;
 								}
-								num15 += 70;
+								num15 += costBlockedWallBase;
 							}
 							if (BlocksDiagonalMovement(curIndex + 1))
 							{
@@ -384,7 +397,7 @@ namespace TerrainMovement
 								{
 									continue;
 								}
-								num15 += 70;
+								num15 += costBlockedWallBase;
 							}
 							break;
 						case 5:
@@ -394,7 +407,7 @@ namespace TerrainMovement
 								{
 									continue;
 								}
-								num15 += 70;
+								num15 += costBlockedWallBase;
 							}
 							if (BlocksDiagonalMovement(curIndex + 1))
 							{
@@ -402,7 +415,7 @@ namespace TerrainMovement
 								{
 									continue;
 								}
-								num15 += 70;
+								num15 += costBlockedWallBase;
 							}
 							break;
 						case 6:
@@ -412,7 +425,7 @@ namespace TerrainMovement
 								{
 									continue;
 								}
-								num15 += 70;
+								num15 += costBlockedWallBase;
 							}
 							if (BlocksDiagonalMovement(curIndex - 1))
 							{
@@ -420,7 +433,7 @@ namespace TerrainMovement
 								{
 									continue;
 								}
-								num15 += 70;
+								num15 += costBlockedWallBase;
 							}
 							break;
 						case 7:
@@ -430,7 +443,7 @@ namespace TerrainMovement
 								{
 									continue;
 								}
-								num15 += 70;
+								num15 += costBlockedWallBase;
 							}
 							if (BlocksDiagonalMovement(curIndex - 1))
 							{
@@ -438,7 +451,7 @@ namespace TerrainMovement
 								{
 									continue;
 								}
-								num15 += 70;
+								num15 += costBlockedWallBase;
 							}
 							break;
 					}
@@ -510,7 +523,7 @@ namespace TerrainMovement
 					if (building2 != null)
 					{
 						PfProfilerBeginSample("Edifices");
-						int buildingCost = GetBuildingCost(building2, traverseParms, pawn);
+						int buildingCost = GetBuildingCost(building2, traverseParms, pawn, tuning);
 						if (buildingCost == int.MaxValue)
 						{
 							PfProfilerEndSample();
@@ -535,6 +548,14 @@ namespace TerrainMovement
 						}
 						num16 += num17;
 						PfProfilerEndSample();
+					}
+					if (tuning.custom != null)
+					{
+						num16 += tuning.custom.CostOffset(intVec, new IntVec3(num12, 0, num13));
+					}
+					if (lordWalkGrid != null && !lordWalkGrid[new IntVec3(num12, 0, num13)])
+					{
+						num16 += costOffLordWalkGrid;
 					}
 					int num18 = num16 + calcGrid[curIndex].knownCost;
 					ushort status = calcGrid[num14].status;
@@ -598,8 +619,11 @@ namespace TerrainMovement
 			return PawnPath.NotFound;
 		}
 
-		public static int GetBuildingCost(Building b, TraverseParms traverseParms, Pawn pawn)
+		public static int GetBuildingCost(Building b, TraverseParms traverseParms, Pawn pawn, PathFinderCostTuning tuning = null)
 		{
+			tuning = (tuning ?? PathFinderCostTuning.DefaultTuning);
+			int costBlockedDoor = tuning.costBlockedDoor;
+			float costBlockedDoorPerHitPoint = tuning.costBlockedDoorPerHitPoint;
 			Building_Door building_Door = b as Building_Door;
 			if (building_Door != null)
 			{
@@ -622,7 +646,7 @@ namespace TerrainMovement
 						{
 							return 0;
 						}
-						return 50 + (int)((float)building_Door.HitPoints * 0.2f);
+						return costBlockedDoor + (int)((float)building_Door.HitPoints * costBlockedDoorPerHitPoint);
 					case TraverseMode.PassDoors:
 						if (pawn != null && building_Door.PawnCanOpen(pawn) && !building_Door.IsForbiddenToPass(pawn) && !building_Door.FreePassage)
 						{
@@ -634,7 +658,7 @@ namespace TerrainMovement
 						}
 						return 150;
 					case TraverseMode.ByPawn:
-						if (!traverseParms.canBash && building_Door.IsForbiddenToPass(pawn))
+						if (!traverseParms.canBashDoors && building_Door.IsForbiddenToPass(pawn))
 						{
 							return int.MaxValue;
 						}
@@ -646,11 +670,30 @@ namespace TerrainMovement
 						{
 							return 0;
 						}
-						if (traverseParms.canBash)
+						if (traverseParms.canBashDoors)
 						{
 							return 300;
 						}
 						return int.MaxValue;
+				}
+			}
+			else if (b.def.IsFence && traverseParms.fenceBlocked)
+			{
+				switch (traverseParms.mode)
+				{
+					case TraverseMode.ByPawn:
+						if (traverseParms.canBashFences)
+						{
+							return 300;
+						}
+						return int.MaxValue;
+					case TraverseMode.PassAllDestroyableThings:
+					case TraverseMode.PassAllDestroyableThingsNotWater:
+						return costBlockedDoor + (int)((float)b.HitPoints * costBlockedDoorPerHitPoint);
+					case TraverseMode.PassDoors:
+					case TraverseMode.NoPassClosedDoors:
+					case TraverseMode.NoPassClosedDoorsOrWater:
+						return 0;
 				}
 			}
 			else if (pawn != null)
@@ -678,30 +721,33 @@ namespace TerrainMovement
 			return false;
 		}
 
-		protected bool BlocksDiagonalMovement(int x, int z)
-		{
-			return BlocksDiagonalMovement(x, z, map);
-		}
-
 		protected bool BlocksDiagonalMovement(int index)
 		{
-			return BlocksDiagonalMovement(index, map);
+			return BlocksDiagonalMovement(index, pathingContext, traverseParms.canBashFences);
 		}
 
-		public static bool BlocksDiagonalMovement(int x, int z, Map map)
+		public static bool BlocksDiagonalMovement(int x, int z, PathingContext pc, bool canBashFences)
 		{
-			return BlocksDiagonalMovement(map.cellIndices.CellToIndex(x, z), map);
+			return BlocksDiagonalMovement(pc.map.cellIndices.CellToIndex(x, z), pc, canBashFences);
 		}
 
-		public static bool BlocksDiagonalMovement(int index, Map map)
+		public static bool BlocksDiagonalMovement(int index, PathingContext pc, bool canBashFences)
 		{
-			if (!map.pathGrid.WalkableFast(index))
+			if (!pc.pathGrid.WalkableFast(index))
 			{
 				return true;
 			}
-			if (map.edificeGrid[index] is Building_Door)
+			Building building = pc.map.edificeGrid[index];
+			if (building != null)
 			{
-				return true;
+				if (building is Building_Door)
+				{
+					return true;
+				}
+				if (canBashFences && building.def.IsFence)
+				{
+					return true;
+				}
 			}
 			return false;
 		}
@@ -810,8 +856,12 @@ namespace TerrainMovement
 			}
 			return null;
 		}
+		private BoolGrid GetLordWalkGrid(Pawn pawn)
+		{
+			return BreachingUtility.BreachingGridFor(pawn)?.WalkGrid;
+		}
 
-		protected void CalculateAndAddDisallowedCorners(TraverseParms traverseParms, PathEndMode peMode, CellRect destinationRect)
+		protected void CalculateAndAddDisallowedCorners(PathEndMode peMode, CellRect destinationRect)
 		{
 			disallowedCornerIndices.Clear();
 			if (peMode == PathEndMode.Touch)
@@ -841,7 +891,7 @@ namespace TerrainMovement
 
 		protected bool IsCornerTouchAllowed(int cornerX, int cornerZ, int adjCardinal1X, int adjCardinal1Z, int adjCardinal2X, int adjCardinal2Z)
 		{
-			return TouchPathEndModeUtility.IsCornerTouchAllowed(cornerX, cornerZ, adjCardinal1X, adjCardinal1Z, adjCardinal2X, adjCardinal2Z, map);
+			return TouchPathEndModeUtility.IsCornerTouchAllowed(cornerX, cornerZ, adjCardinal1X, adjCardinal1Z, adjCardinal2X, adjCardinal2Z, pathingContext);
 		}
 	}
 }
