@@ -201,9 +201,9 @@ namespace TerrainMovement
                 {
                     Pawn pawn = entry.Key;
                     HashSet<int> tileReachableLookup = entry.Value;
-                    for (int xmod = -1; xmod <= 2; xmod++)
+                    for (int xmod = -1; xmod < 2; xmod++)
                     {
-                        for (int zmod = -1; zmod <= 2; zmod++)
+                        for (int zmod = -1; zmod < 2; zmod++)
                         {
                             IntVec3 check = new IntVec3(c.x + xmod, c.y, c.z + zmod);
                             int checkIndex = map.cellIndices.CellToIndex(check);
