@@ -49,27 +49,6 @@ namespace TerrainMovement
     {
         static bool Prefix(ref bool __result, Map ___map, IntVec3 start, LocalTargetInfo dest, PathEndMode peMode, TraverseParms traverseParams)
         {
-            // Some optimization checks ahead of the expensive terrain check
-            if (traverseParams.pawn != null && !traverseParams.pawn.Spawned)
-            {
-                __result = false;
-                return false;
-            }
-            if (!dest.IsValid)
-            {
-                __result = false;
-                return false;
-            }
-            if (dest.HasThing && dest.Thing.Map != ___map)
-            {
-                __result = false;
-                return false;
-            }
-            if (!start.InBounds(___map) || !dest.Cell.InBounds(___map))
-            {
-                __result = false;
-                return false;
-            }
             // The actual new check to make
             if (!___map.FullTerrainCanReach(dest, traverseParams.pawn))
             {
