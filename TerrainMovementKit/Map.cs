@@ -296,9 +296,9 @@ namespace TerrainMovement
                 foreach (Pawn pawn in mapPawnReachable.Keys)
                 {
                     HashSet<int> tileReachableLookup = mapPawnReachable.GetValueSafe(pawn);
-                    for (int xmod = -1; xmod <= 2; xmod++)
+                    for (int xmod = -1; xmod < 2; xmod++)
                     {
-                        for (int zmod = -1; zmod <= 2; zmod++)
+                        for (int zmod = -1; zmod < 2; zmod++)
                         {
                             IntVec3 adjacent = new IntVec3(c.x + xmod, c.y, c.z + zmod);
                             int adjacentIndex = map.cellIndices.CellToIndex(adjacent);
