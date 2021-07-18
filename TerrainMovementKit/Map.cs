@@ -6,6 +6,7 @@ using Verse.AI;
 using HarmonyLib;
 using System.Linq;
 using RimWorld.Planet;
+using System.Reflection;
 
 namespace TerrainMovement
 {
@@ -48,6 +49,28 @@ namespace TerrainMovement
     {
         static bool Prefix(ref bool __result, Map ___map, IntVec3 start, LocalTargetInfo dest, PathEndMode peMode, TraverseParms traverseParams)
         {
+            // Some optimization checks ahead of the expensive terrain check
+            if (traverseParams.pawn != null && !traverseParams.pawn.Spawned)
+            {
+                __result = false;
+                return false;
+            }
+            if (!dest.IsValid)
+            {
+                __result = false;
+                return false;
+            }
+            if (dest.HasThing && dest.Thing.Map != ___map)
+            {
+                __result = false;
+                return false;
+            }
+            if (!start.InBounds(___map) || !dest.Cell.InBounds(___map))
+            {
+                __result = false;
+                return false;
+            }
+            // The actual new check to make
             if (!___map.FullTerrainCanReach(dest, traverseParams.pawn))
             {
                 __result = false;
@@ -57,17 +80,98 @@ namespace TerrainMovement
         }
     }
 
-    [HarmonyPatch(typeof(ReachabilityImmediate), "CanReachImmediate", new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(Map), typeof(PathEndMode), typeof(Pawn) })]
-    public class CanReachImmediateMoveCheck
+    // Transpiling the delegated methods is a nightmare... just going to overwrite the function since it's hard for anyone else to as well
+    [HarmonyPatch(typeof(Reachability), "CheckCellBasedReachability")]
+    public class TerrainAware_CheckCellBasedReachability
     {
-        static bool Prefix(ref bool __result, IntVec3 start, LocalTargetInfo target, Map map, PathEndMode peMode, Pawn pawn)
+        public static MethodInfo CanUseCacheInfo = AccessTools.Method(typeof(Reachability), "CanUseCache");
+
+        static bool Prefix(ref bool __result, Map ___map, RegionGrid ___regionGrid, List<Region> ___startingRegions, List<Region> ___destRegions, ReachabilityCache ___cache, Reachability __instance, IntVec3 start, LocalTargetInfo dest, PathEndMode peMode, TraverseParms traverseParams)
         {
-            if (!map.FullTerrainCanReach(target, pawn))
+            object[] canUseCacheParams = new object[] { traverseParams.mode };
+            IntVec3 foundCell = IntVec3.Invalid;
+            Region[] directRegionGrid = ___regionGrid.DirectGrid;
+            PathGrid pathGrid = ___map.pathGrid;
+            CellIndices cellIndices = ___map.cellIndices;
+            TerrainDef[] topGrid = ___map.terrainGrid.topGrid;
+            Dictionary<TerrainDef, bool> pawnImpassibleMovementCache = new Dictionary<TerrainDef, bool>();
+            ___map.floodFiller.FloodFill(start, delegate (IntVec3 c)
             {
-                __result = false;
+                int num = cellIndices.CellToIndex(c);
+                if ((traverseParams.mode == TraverseMode.PassAllDestroyableThingsNotWater || traverseParams.mode == TraverseMode.NoPassClosedDoorsOrWater) && c.GetTerrain(___map).IsWater)
+                {
+                    return false;
+                }
+                if (traverseParams.mode == TraverseMode.PassAllDestroyableThings || traverseParams.mode == TraverseMode.PassAllDestroyableThingsNotWater)
+                {
+                    if (!pathGrid.WalkableFast(num))
+                    {
+                        Building edifice = c.GetEdifice(___map);
+                        if (edifice == null || !PathFinder.IsDestroyable(edifice))
+                        {
+                            return false;
+                        }
+                    }
+                }
+                else if (traverseParams.mode != TraverseMode.NoPassClosedDoorsOrWater)
+                {
+                    Log.ErrorOnce("Do not use this method for non-cell based modes!", 938476762);
+                    if (!pathGrid.WalkableFast(num))
+                    {
+                        return false;
+                    }
+                }
+                // START CHANGED CODE
+                TerrainDef targetTerrain = topGrid[num];
+                if (!pawnImpassibleMovementCache.TryGetValue(targetTerrain, out bool impassible))
+                {
+                    impassible = traverseParams.pawn.kindDef.UnreachableTerrainCheck(targetTerrain);
+                    pawnImpassibleMovementCache[targetTerrain] = impassible;
+                }
+                if (impassible)
+                {
+                    return false;
+                }
+                // END CHANGED CODE
+                Region region = directRegionGrid[num];
+                return (region == null || region.Allows(traverseParams, isDestination: false)) ? true : false;
+            }, delegate (IntVec3 c)
+            {
+                if (ReachabilityImmediate.CanReachImmediate(c, dest, ___map, peMode, traverseParams.pawn))
+                {
+                    foundCell = c;
+                    return true;
+                }
+                return false;
+            });
+            if (foundCell.IsValid)
+            {
+                if ((bool)CanUseCacheInfo.Invoke(__instance, canUseCacheParams))
+                {
+                    Region validRegionAt = ___regionGrid.GetValidRegionAt(foundCell);
+                    if (validRegionAt != null)
+                    {
+                        for (int i = 0; i < ___startingRegions.Count; i++)
+                        {
+                            ___cache.AddCachedResult(___startingRegions[i].Room, validRegionAt.Room, traverseParams, reachable: true);
+                        }
+                    }
+                }
+                __result = true;
                 return false;
             }
-            return true;
+            if ((bool)CanUseCacheInfo.Invoke(__instance, canUseCacheParams))
+            {
+                for (int j = 0; j < ___startingRegions.Count; j++)
+                {
+                    for (int k = 0; k < ___destRegions.Count; k++)
+                    {
+                        ___cache.AddCachedResult(___startingRegions[j].Room, ___destRegions[k].Room, traverseParams, reachable: false);
+                    }
+                }
+            }
+            __result = false;
+            return false;
         }
     }
 
@@ -107,6 +211,19 @@ namespace TerrainMovement
                 MapExtensions.EdgeTerrainLookup.Remove(___map);
             }
             ___map.UpdatePawnTerrainChecksAffected(c);
+        }
+    }
+
+    [HarmonyPatch(typeof(GenClosest), "RegionwiseBFSWorker")]
+    public class TerrainAware_RegionwiseBFSWorker
+    {
+        static bool Prefix(ref Thing __result, Map map, TraverseParms traverseParams, ref Predicate<Thing> validator)
+        {
+            var oldValidator = validator;
+            validator = delegate (Thing t) {
+                return (oldValidator == null || oldValidator(t)) && map.FullTerrainCanReach(t.Position, traverseParams.pawn);
+            };
+            return true;
         }
     }
 
@@ -197,27 +314,27 @@ namespace TerrainMovement
             {
                 int mapSizeX = map.Size.x;
                 int mapSizeZ = map.Size.z;
-                foreach (KeyValuePair<Pawn, HashSet<int>> entry in mapPawnReachable)
+                foreach (Pawn pawn in mapPawnReachable.Keys)
                 {
-                    Pawn pawn = entry.Key;
-                    HashSet<int> tileReachableLookup = entry.Value;
+                    HashSet<int> tileReachableLookup = mapPawnReachable.GetValueSafe(pawn);
                     for (int xmod = -1; xmod < 2; xmod++)
                     {
                         for (int zmod = -1; zmod < 2; zmod++)
                         {
-                            IntVec3 check = new IntVec3(c.x + xmod, c.y, c.z + zmod);
-                            int checkIndex = map.cellIndices.CellToIndex(check);
-                            if (!(check.x < 0 || check.x >= mapSizeX || check.z < 0 || check.z >= mapSizeZ) && tileReachableLookup.Contains(checkIndex))
+                            IntVec3 adjacent = new IntVec3(c.x + xmod, c.y, c.z + zmod);
+                            int adjacentIndex = map.cellIndices.CellToIndex(adjacent);
+                            if (!(adjacent.x < 0 || adjacent.x >= mapSizeX || adjacent.z < 0 || adjacent.z >= mapSizeZ) && tileReachableLookup.Contains(adjacentIndex))
                             {
-                                // Remove the index as we're about to apply the builder against it
-                                tileReachableLookup.Remove(checkIndex);
-                                map.BuildPawnTerrainCheck(pawn, c, ref tileReachableLookup);
+                                // An adjacent tile was accessible, so recalculate to rebuild the mapping
+                                mapPawnReachable.SetOrAdd(pawn, map.BuildPawnTerrainCheck(pawn));
+                                return;
                             }
                         }
                     }
                 }
             }
         }
+
         public static HashSet<int> BuildPawnTerrainCheck(this Map map, Pawn pawn)
         {
             HashSet<int> tileReachableLookup = new HashSet<int>();
@@ -246,9 +363,9 @@ namespace TerrainMovement
                 if (!currentUnreachable)
                 {
                     tileReachableLookup.Add(currentIndex);
-                    for (int xmod = -1; xmod <= 2; xmod++)
+                    for (int xmod = -1; xmod < 2; xmod++)
                     {
-                        for (int zmod = -1; zmod <= 2; zmod++)
+                        for (int zmod = -1; zmod < 2; zmod++)
                         {
                             IntVec3 check = new IntVec3(current.x + xmod, current.y, current.z + zmod);
                             int checkIndex = map.cellIndices.CellToIndex(check);
