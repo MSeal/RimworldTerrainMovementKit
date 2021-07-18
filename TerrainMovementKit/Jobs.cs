@@ -85,4 +85,159 @@ namespace TerrainMovement
             }
         }
     }
+
+	// Uncomment if you want visibility into job pathing failures
+    /*[HarmonyPatch(typeof(Pawn_PathFollower), "PatherFailed")]
+    public class Pawn_PathFollower_Failed_Debug
+    {
+        private static void Postfix(Pawn ___pawn)
+        {
+            Log.Warning("Job " + ___pawn.jobs.curDriver.ToStringSafe() + " for pawn " + ___pawn.ToStringSafe() + " Failed Pathing");
+        }
+    }*/
+
+	// Uncomment this if you want to debug RCellFinder CanWander
+	/*[HarmonyPatch(typeof(RCellFinder), "CanWanderToCell")]
+	public class CanWanderToCell_Debug
+	{
+		private static bool Prefix(ref bool __result, IntVec3 c, Pawn pawn, IntVec3 root, Func<Pawn, IntVec3, IntVec3, bool> validator, int tryIndex, Danger maxDanger)
+		{
+			bool flag = true;
+			if (!c.WalkableBy(pawn.Map, pawn))
+			{
+				if (flag)
+				{
+					Log.Warning("Not Walkable for " + pawn.ToStringSafe() + " @ " + c.ToStringSafe());
+					pawn.Map.debugDrawer.FlashCell(c, 0f, "walk");
+				}
+				__result = false;
+				return false;
+			}
+			if (c.IsForbidden(pawn))
+			{
+				if (flag)
+				{
+					Log.Warning("Forbidden for " + pawn.ToStringSafe() + " @ " + c.ToStringSafe());
+					pawn.Map.debugDrawer.FlashCell(c, 0.25f, "forbid");
+				}
+				__result = false;
+				return false;
+			}
+			if (tryIndex < 10 && !c.Standable(pawn.Map))
+			{
+				if (flag)
+				{
+					Log.Warning("Not Standable for " + pawn.ToStringSafe() + " @ " + c.ToStringSafe());
+					pawn.Map.debugDrawer.FlashCell(c, 0.25f, "stand");
+				}
+				__result = false;
+				return false;
+			}
+			if (!pawn.CanReach(c, PathEndMode.OnCell, maxDanger))
+			{
+				if (flag)
+				{
+					Log.Warning("Can't reach " + pawn.ToStringSafe() + " @ " + c.ToStringSafe());
+					pawn.Map.debugDrawer.FlashCell(c, 0.6f, "reach");
+				}
+				__result = false;
+				return false;
+			}
+			if (PawnUtility.KnownDangerAt(c, pawn.Map, pawn))
+			{
+				if (flag)
+				{
+					Log.Warning("Knwon Danger for " + pawn.ToStringSafe() + " @ " + c.ToStringSafe());
+					pawn.Map.debugDrawer.FlashCell(c, 0.1f, "trap");
+				}
+				__result = false;
+				return false;
+			}
+			if (tryIndex < 10)
+			{
+				if (c.GetTerrain(pawn.Map).avoidWander)
+				{
+					if (flag)
+					{
+						Log.Warning("Avoid wander" + pawn.ToStringSafe() + " @ " + c.ToStringSafe());
+						pawn.Map.debugDrawer.FlashCell(c, 0.39f, "terr");
+					}
+					__result = false;
+					return false;
+				}
+				if (pawn.Map.pathing.For(pawn).pathGrid.PerceivedPathCostAt(c) > 20)
+				{
+					if (flag)
+					{
+						Log.Warning("PCost too high for " + pawn.ToStringSafe() + " @ " + c.ToStringSafe());
+						pawn.Map.debugDrawer.FlashCell(c, 0.4f, "pcost");
+					}
+					__result = false;
+					return false;
+				}
+				if ((int)c.GetDangerFor(pawn, pawn.Map) > 1)
+				{
+					if (flag)
+					{
+						Log.Warning("Danger for " + pawn.ToStringSafe() + " @ " + c.ToStringSafe());
+						pawn.Map.debugDrawer.FlashCell(c, 0.4f, "danger");
+					}
+					__result = false;
+					return false;
+				}
+			}
+			else if (tryIndex < 15 && c.GetDangerFor(pawn, pawn.Map) == Danger.Deadly)
+			{
+				if (flag)
+				{
+					Log.Warning("Deadly for " + pawn.ToStringSafe() + " @ " + c.ToStringSafe());
+					pawn.Map.debugDrawer.FlashCell(c, 0.4f, "deadly");
+				}
+				__result = false;
+				return false;
+			}
+			if (!pawn.Map.pawnDestinationReservationManager.CanReserve(c, pawn))
+			{
+				if (flag)
+				{
+					Log.Warning("Can't reserve for " + pawn.ToStringSafe() + " @ " + c.ToStringSafe());
+					pawn.Map.debugDrawer.FlashCell(c, 0.75f, "resvd");
+				}
+				__result = false;
+				return false;
+			}
+			if (validator != null && !validator(pawn, c, root))
+			{
+				if (flag)
+				{
+					Log.Warning("Validator failed for " + pawn.ToStringSafe() + " @ " + c.ToStringSafe());
+					pawn.Map.debugDrawer.FlashCell(c, 0.15f, "valid");
+				}
+				__result = false;
+				return false;
+			}
+			if (c.GetDoor(pawn.Map) != null)
+			{
+				if (flag)
+				{
+					Log.Warning("Door blocking " + pawn.ToStringSafe() + " @ " + c.ToStringSafe());
+					pawn.Map.debugDrawer.FlashCell(c, 0.32f, "door");
+				}
+				__result = false;
+				return false;
+			}
+			if (c.ContainsStaticFire(pawn.Map))
+			{
+				if (flag)
+				{
+					Log.Warning("Fire blocking " + pawn.ToStringSafe() + " @ " + c.ToStringSafe());
+					pawn.Map.debugDrawer.FlashCell(c, 0.9f, "fire");
+				}
+				__result = false;
+				return false;
+			}
+			__result = true;
+			return false;
+		}
+	}*/
 }
