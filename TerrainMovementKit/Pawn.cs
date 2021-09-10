@@ -93,7 +93,7 @@ namespace TerrainMovement
         }
     }
 
-    public static class PawnKindDefExtensions
+    public static class ThingDefExtensions
     {
         // Provides an opportunity for other mods to manipulate terrain movement stats based on their mod extensions
         public static TerrainMovementPawnRestrictions LoadTerrainMovementPawnRestrictionsExtension(DefModExtension ext)
@@ -105,8 +105,9 @@ namespace TerrainMovement
             return null;
         }
 
-        public static bool UnreachableTerrainCheck(IEnumerable<DefModExtension> modExtensions, TerrainDef terrain)
+        public static IEnumerable<TerrainMovementPawnRestrictions> MovementExtensions(this ThingDef race)
         {
+            var modExtensions = race.modExtensions;
             if (modExtensions != null)
             {
                 foreach (DefModExtension ext in modExtensions)
@@ -114,44 +115,50 @@ namespace TerrainMovement
                     TerrainMovementPawnRestrictions restrictions = LoadTerrainMovementPawnRestrictionsExtension(ext);
                     if (restrictions != null)
                     {
-                        if (restrictions.stayOffTerrainTag != null && terrain.HasTag(restrictions.stayOffTerrainTag))
-                        {
-                            return true;
-                        }
-                        if (restrictions.stayOnTerrainTag != null && !terrain.HasTag(restrictions.stayOnTerrainTag))
-                        {
-                            return true;
-                        }
+                        yield return restrictions;
                     }
                 }
             }
-            return false;
         }
 
-        public static bool AllowsBasicMovement(this PawnKindDef kind)
+        public static bool AllowsBasicMovement(this ThingDef race)
         {
-            if (kind.race.modExtensions != null)
+            foreach (DefModExtension ext in race.MovementExtensions())
             {
-                foreach (DefModExtension ext in kind.race.modExtensions)
+                TerrainMovementPawnRestrictions restrictions = LoadTerrainMovementPawnRestrictionsExtension(ext);
+                if (restrictions != null && !restrictions.defaultMovementAllowed)
                 {
-                    TerrainMovementPawnRestrictions restrictions = LoadTerrainMovementPawnRestrictionsExtension(ext);
-                    if (restrictions != null && !restrictions.defaultMovementAllowed)
-                    {
-                        return false;
-                    }
+                    return false;
                 }
             }
             return true;
         }
 
-        public static bool HasTerrainChecks(this PawnKindDef kind)
+        public static bool HasTerrainChecks(this ThingDef race)
         {
-            if (kind.race.modExtensions != null)
+            foreach (DefModExtension ext in race.MovementExtensions())
             {
-                foreach (DefModExtension ext in kind.race.modExtensions)
+                TerrainMovementPawnRestrictions restrictions = LoadTerrainMovementPawnRestrictionsExtension(ext);
+                if (restrictions != null)
                 {
-                    TerrainMovementPawnRestrictions restrictions = LoadTerrainMovementPawnRestrictionsExtension(ext);
-                    if (restrictions != null)
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public static bool UnreachableTerrainCheck(this ThingDef race, TerrainDef terrain)
+        {
+            foreach (DefModExtension ext in race.MovementExtensions())
+            {
+                TerrainMovementPawnRestrictions restrictions = LoadTerrainMovementPawnRestrictionsExtension(ext);
+                if (restrictions != null)
+                {
+                    if (restrictions.stayOffTerrainTag != null && terrain.HasTag(restrictions.stayOffTerrainTag))
+                    {
+                        return true;
+                    }
+                    if (restrictions.stayOnTerrainTag != null && !terrain.HasTag(restrictions.stayOnTerrainTag))
                     {
                         return true;
                     }
@@ -160,14 +167,37 @@ namespace TerrainMovement
             return false;
         }
 
+        public static bool UnreachableLocationCheck(this ThingDef race, Map map, IntVec3 loc)
+        {
+            return race.UnreachableTerrainCheck(map.terrainGrid.TerrainAt(loc));
+        }
+    }
+
+    public static class PawnKindDefExtensions
+    {
+        public static IEnumerable<TerrainMovementPawnRestrictions> MovementExtensions(this PawnKindDef kind)
+        {
+            return kind.race.MovementExtensions();
+        }
+
+        public static bool AllowsBasicMovement(this PawnKindDef kind)
+        {
+            return kind.race.AllowsBasicMovement();
+        }
+
+        public static bool HasTerrainChecks(this PawnKindDef kind)
+        {
+            return kind.race.HasTerrainChecks();
+        }
+
         public static bool UnreachableTerrainCheck(this PawnKindDef kind, TerrainDef terrain)
         {
-            return UnreachableTerrainCheck(kind.race.modExtensions, terrain);
+            return kind.race.UnreachableTerrainCheck(terrain);
         }
 
         public static bool UnreachableLocationCheck(this PawnKindDef kind, Map map, IntVec3 loc)
         {
-            return UnreachableTerrainCheck(kind.race.modExtensions, map.terrainGrid.TerrainAt(loc));
+            return kind.race.UnreachableTerrainCheck(map.terrainGrid.TerrainAt(loc));
         }
     }
 
@@ -315,8 +345,8 @@ namespace TerrainMovement
             {
                 Log.ErrorOnce("No valid movement stat available for '" + pawn.kindDef.defName + "' on '" + terrain.defName + "'. " +
                     "Please assign at least movement stat to this terrain for this pawnKind. " +
-                    "Note that 'disallowedLocomotionUrgencies' in a TerrainMovementStatDef extension can limit the number of valid movement stat. s" +
-                    "Defaulting the MoveSpeed", pawn.kindDef.GetHashCode() + terrain.GetHashCode());
+                    "Note that 'disallowedLocomotionUrgencies' in a TerrainMovementStatDef extension can limit the number of valid movement stat. " +
+                    "Defaulting to MoveSpeed", pawn.kindDef.GetHashCode() + terrain.GetHashCode());
                 return StatDefOf.MoveSpeed;
             }
             return bestMovement.moveStat;

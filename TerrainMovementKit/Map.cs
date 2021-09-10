@@ -396,12 +396,12 @@ namespace TerrainMovement
             return terrains;
         }
 
-        public static bool ThingCanEnter(this Map map, ThingDef kind)
+        public static bool ThingCanEnter(this Map map, ThingDef race)
         {
             int reachableTiles = 0;
             foreach (KeyValuePair<TerrainDef, int> entry in map.TerrainEdgeCounts())
             {
-                if (!PawnKindDefExtensions.UnreachableTerrainCheck(kind.modExtensions, entry.Key))
+                if (!race.UnreachableTerrainCheck(entry.Key))
                 {
                     reachableTiles += entry.Value;
                 }
