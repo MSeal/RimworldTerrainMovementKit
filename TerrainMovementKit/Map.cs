@@ -398,6 +398,10 @@ namespace TerrainMovement
 
         public static bool ThingCanEnter(this Map map, ThingDef race)
         {
+            if (!race.HasTerrainChecks())
+            {
+                return true;
+            }
             int reachableTiles = 0;
             foreach (KeyValuePair<TerrainDef, int> entry in map.TerrainEdgeCounts())
             {
