@@ -58,19 +58,35 @@ namespace TerrainMovement
         }
     }
 
-    [HarmonyPatch(typeof(JobDriver_Wait), "DecorateWaitToil")]
-    public class JobDriver_Wait_DecorateWaitToil_TerrainAware_Patch
-    {
-        public static bool Prefix(ref JobDriver_Wait __instance, Toil wait)
-        {
-            // Default to Amble since it instead defaults to Job
-            // This causes disallowedLocomotionUrgencies to be difficult to use otherwise for non-action pawns
-            __instance.job.locomotionUrgency = LocomotionUrgency.Amble;
-            return true;
-        }
-    }
+	[HarmonyPatch(typeof(JobDriver_Wait), "DecorateWaitToil")]
+	public class JobDriver_Wait_DecorateWaitToil_TerrainAware_Patch
+	{
+		public static bool Prefix(ref JobDriver_Wait __instance, Toil wait)
+		{
+			// Default to Amble since it instead defaults to Job
+			// This causes disallowedLocomotionUrgencies to be difficult to use otherwise for non-action pawns
+			__instance.job.locomotionUrgency = LocomotionUrgency.Amble;
+			return true;
+		}
+	}
 
-    [HarmonyPatch(typeof(ReservationManager), "CanReserve")]
+	// Achtung! modifies Notify_Teleported to not end the current job, but that also causes Notify_Teleported_Int
+	// to never reset set the pather's next position. This reapplys that positional assignemnt without manipulating
+	// job status.
+	[HarmonyPatch(typeof(Pawn_PathFollower), nameof(Pawn_PathFollower.TryRecoverFromUnwalkablePosition))]
+	static class Pawn_PathFollower_TryRecoverFromUnwalkablePosition_Patch
+	{
+		public static void Postfix(ref bool __result, Pawn ___pawn)
+		{
+			// Only apply if the pawn was successfully teleported and not destroyed
+			if (__result)
+            {
+				___pawn.pather.Notify_Teleported_Int();
+			}
+		}
+	}
+
+	[HarmonyPatch(typeof(ReservationManager), "CanReserve")]
     public class ReservationManager_Reservation_CanReserve_ReachCheckPatch
     {
         public static void Postfix(ref bool __result, Pawn claimant, LocalTargetInfo target)
