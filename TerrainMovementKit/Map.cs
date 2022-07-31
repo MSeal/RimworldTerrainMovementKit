@@ -102,14 +102,16 @@ namespace TerrainMovement
                 }
                 // START CHANGED CODE
                 TerrainDef targetTerrain = topGrid[num];
-                if (!pawnImpassibleMovementCache.TryGetValue(targetTerrain, out bool impassible))
-                {
-                    impassible = traverseParams.pawn.kindDef.UnreachableTerrainCheck(targetTerrain);
-                    pawnImpassibleMovementCache[targetTerrain] = impassible;
-                }
-                if (impassible)
-                {
-                    return false;
+                if (traverseParams.pawn != null) {
+                    if (!pawnImpassibleMovementCache.TryGetValue(targetTerrain, out bool impassible))
+                    {
+                        impassible = traverseParams.pawn.kindDef.UnreachableTerrainCheck(targetTerrain);
+                        pawnImpassibleMovementCache[targetTerrain] = impassible;
+                    }
+                    if (impassible)
+                    {
+                        return false;
+                    }
                 }
                 // END CHANGED CODE
                 Region region = directRegionGrid[num];
