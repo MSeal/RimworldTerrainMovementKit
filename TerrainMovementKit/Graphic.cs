@@ -52,6 +52,7 @@ namespace TerrainMovement
         {
             Pawn pawn = ___pawn;
             StatDef moveStat = pawn.BestTerrainMoveStat();
+            Graphic pawnGraphics = __instance.nakedGraphic;
             if (!(moveStat == null || moveStat == StatDefOf.MoveSpeed))
             {
                 TerrainMovementPawnKindGraphics graphicsExt = pawn.LoadTerrainMovementPawnKindGraphicsExtension(moveStat);
@@ -66,6 +67,16 @@ namespace TerrainMovement
                     {
                         graphicsExt.femaleGraphicData.graphicClass = typeof(Graphic_Multi);
                     }
+                    if (!graphicsExt.alternateGraphicsData.NullOrEmpty())
+                    {
+                        foreach(GraphicData gd in graphicsExt.alternateGraphicsData)
+                        {
+                            if (gd.graphicClass == null)
+                            {
+                                gd.graphicClass = typeof(Graphic_Multi);
+                            }
+                        }
+                    }
 
                     // Pick the graphic geing used
                     if (pawn.gender != Gender.Female || graphicsExt.femaleGraphicData == null)
@@ -75,6 +86,54 @@ namespace TerrainMovement
                     else
                     {
                         __instance.nakedGraphic = graphicsExt.femaleGraphicData.Graphic;
+                    }
+
+                    // Allow for alternative graphics
+                    if (!graphicsExt.alternateGraphicsData.NullOrEmpty())
+                    {
+                        foreach (var it in ___pawn.kindDef.alternateGraphics.Select((x, i) => new { Value = x, Index = i }))
+                        {
+                            int index = it.Index;
+                            string texPath = (string)typeof(AlternateGraphic).GetField("texPath", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(it.Value);
+                            Color? colorOne = (Color?)typeof(AlternateGraphic).GetField("color", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(it.Value);
+                            Color? colorTwo = (Color?)typeof(AlternateGraphic).GetField("colorTwo", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(it.Value);
+                            // If the assignable fields all match, assume we're using this alt graphic
+                            if ((texPath == null || texPath == pawnGraphics.data.texPath) && (colorOne == null || colorOne == pawnGraphics.data.color) && (colorTwo == null || colorTwo == pawnGraphics.data.colorTwo))
+                            {
+                                // Use the alt graphic at the same index
+                                if (graphicsExt.alternateGraphicsData.Count > it.Index)
+                                {
+                                    var gd = graphicsExt.alternateGraphicsData.ElementAt(index);
+                                    try
+                                    {
+                                        __instance.nakedGraphic = gd.Graphic;
+                                    }
+                                    catch (ArgumentNullException)
+                                    {
+                                        // No graphic was made because only the color was modified, make one just in time here
+                                        string gdTexPath = gd.texPath;
+                                        Color? gdColorOne = gd.color;
+                                        Color? gdColorTwo = gd.colorTwo;
+                                        gd.CopyFrom(pawnGraphics.data);
+                                        if (!gdTexPath.NullOrEmpty())
+                                        {
+                                            // This case shouldn't happen here but just in case....
+                                            gd.texPath = gdTexPath;
+                                        }
+                                        if (gdColorOne != null)
+                                        {
+                                            gd.color = (Color)gdColorOne;
+                                        }
+                                        if (gdColorTwo != null)
+                                        {
+                                            gd.colorTwo = (Color)gdColorTwo;
+                                        }
+                                        __instance.nakedGraphic = gd.Graphic;
+                                    }
+                                    break;
+                                }
+                            }   
+                        }
                     }
                 }
             }

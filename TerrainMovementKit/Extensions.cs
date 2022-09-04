@@ -19,6 +19,7 @@ namespace TerrainMovement
         public String pawnSpeedStat; // Required
         public GraphicData bodyGraphicData;
         public GraphicData femaleGraphicData = null;
+        public List<GraphicData> alternateGraphicsData = new List<GraphicData>();
 
         public bool StatAffectedGraphic(StatDef moveStat)
         {
