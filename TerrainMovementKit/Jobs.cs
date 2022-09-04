@@ -20,8 +20,18 @@ namespace TerrainMovement
         }
     }
 
+	[HarmonyPatch(typeof(JobDriver_LayDown), "LayDownToil")]
+	public class JobDriver_LayDown_LayDownToil_LocmotionAware
+	{
+		public static bool Prefix(ref JobDriver_LayDown __instance)
+		{
+			__instance.job.locomotionUrgency = LocomotionUrgency.None;
+			return true;
+		}
+	}
 
-    [HarmonyPatch]
+
+	[HarmonyPatch]
     public static class JobDriver_FollowClose_MakeNewToils_Patch
     {
         public static MethodInfo RandomClosewalkCellNearInfo = AccessTools.Method(typeof(CellFinderExtended), "RandomClosewalkCellNear");
