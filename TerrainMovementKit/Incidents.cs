@@ -302,11 +302,11 @@ namespace TerrainMovement
 
     public static class PawnGroupMakerParmsExtended
     {
-        public static bool MapAllowed(this PawnGroupMakerParms parms, PawnGenOption pawnOpt)
+        public static bool MapAllowed(this PawnGroupMakerParms parms, ref PawnGenOptionWithXenotype pawnOpt)
         {
             if (parms.tile >= 0 && MapExtensions.TileLookup.TryGetValue(parms.tile, out Map map))
             {
-                return map.PawnKindCanEnter(pawnOpt.kind);
+                return map.PawnKindCanEnter(pawnOpt.Option.kind);
             }
             return true;
         }
@@ -330,10 +330,10 @@ namespace TerrainMovement
             for (int i = 0; i < list.Count(); i++)
             {
                 var inst = list[i];
-                if (injectIndex < 0 && inst.opcode == OpCodes.Callvirt && (inst.operand as MethodInfo)?.Name == "get_Cost")
+                if (injectIndex < 0 && inst.opcode == OpCodes.Call && (inst.operand as MethodInfo)?.Name == "get_Cost")
                 {
                     costCounts += 1;
-                    if (costCounts == 2)
+                    if (costCounts == 1)
                     {
                         injectIndex = i + 3;
                         pawnOptOp = list[i - 1];
